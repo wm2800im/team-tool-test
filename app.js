@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.6';
+const APP_VERSION = ENV.version || '4.4.0-beta.7';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -310,7 +310,7 @@ function initStaticUI(){
   $('aboutToggle').addEventListener('click',()=>{const details=$('aboutDetails');const open=details.style.display!=='none';details.style.display=open?'none':'block';$('aboutToggle').classList.toggle('open',!open);});
   $('donateBtn').addEventListener('click',()=>{const el=$('coffeeThanks');if(el){el.style.display='block';setTimeout(()=>{el.style.display='none';},3500);}});
   $('notificationsToggle').addEventListener('change',toggleNotifications); $('localNotificationTestBtn')?.addEventListener('click',testLocalNotification); $('copyFcmTokenBtn')?.addEventListener('click',copyFcmToken); qsa('[data-theme]').forEach(b=>b.addEventListener('click',()=>saveTheme(b.dataset.theme)));
-  $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot);
+  $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot); $('adminBroadcastTestBtn')?.addEventListener('click',queueAdminBroadcastTest);
   $('testUserSwitch').addEventListener('change',()=>switchTestUser($('testUserSwitch').value));
   setInterval(()=>{ if($('tomorrow')?.classList.contains('active')) renderTomorrow(); },60000);
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').style.display='inline-block';});
@@ -319,12 +319,13 @@ function initStaticUI(){
 }
 function fillTimeSelect(sel,value='16:15'){
   sel.innerHTML='';
-  for(let h=14;h<=20;h++) for(const m of [0,15,30,45]){
-    if(h===20&&m>0)continue;
+  const start=15*60+15, end=18*60;
+  for(let total=start;total<=end;total+=15){
+    const h=Math.floor(total/60),m=total%60;
     const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
     const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);
   }
-  sel.value=value;
+  sel.value=[...sel.options].some(o=>o.value===value)?value:'16:15';
 }
 function openPage(page){
   qsa('.page').forEach(x=>x.classList.toggle('active',x.id===page)); qsa('#nav button[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===page));
@@ -564,6 +565,23 @@ function exportHistoryCSV(){
   flattenTrips().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>rows.push([t.date,groupCode(t.participants),canonical(t.participants).map(label).join(' + '),label(t.driver),t.source||'']));
   const esc=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv='\ufeff'+rows.map(r=>r.map(esc).join(';')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Historique_Covoiturage_${iso(new Date())}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Historique exporté.');
+}
+
+async function queueAdminBroadcastTest(){
+  if(linkedProfileId!=='igor'){alert('Action réservée à Igor.');return;}
+  if(!confirm('Envoyer une notification de test à tous les appareils ayant activé les notifications ?'))return;
+  const btn=$('adminBroadcastTestBtn'),state=$('adminBroadcastState');
+  if(btn){btn.disabled=true;btn.textContent='Envoi demandé…';}
+  if(state)state.textContent='Mise en file d’attente…';
+  try{
+    const id=`broadcast_${Date.now()}_${crypto.randomUUID().slice(0,8)}`;
+    await setDoc(doc(db,'notificationRequests',id),{
+      type:'broadcast-test',title:'Covoiturage',body:'Notification de test ✅',status:'pending',createdBy:'igor',createdAt:serverTimestamp()
+    });
+    if(state)state.textContent='✓ Demande enregistrée. Envoi à tous les appareils activés dans quelques minutes.';
+    toast('Notification de test demandée.');
+  }catch(e){if(state)state.textContent='Erreur : '+friendlyError(e);alert(friendlyError(e));}
+  finally{if(btn){btn.disabled=false;btn.textContent='🔔 Envoyer à tous';}}
 }
 
 async function renderAdmin(){

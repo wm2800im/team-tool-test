@@ -1,6 +1,8 @@
 {
-  "name":"covoiturage-reminders",
-  "private":true,
-  "type":"module",
-  "dependencies":{"firebase-admin":"^13.4.0"}
+  "name": "covoiturage-notifications",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^13.4.0"
+  }
 }
