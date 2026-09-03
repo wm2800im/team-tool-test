@@ -1,0 +1,20 @@
+name: Rappel Covoiturage 20h
+on:
+  schedule:
+    - cron: '7 20 * * *'
+      timezone: 'Europe/Paris'
+  workflow_dispatch:
+jobs:
+  reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --omit=dev
+      - run: node scripts/send-reminders.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          APP_URL: https://wm2800im.github.io/team-tool/
+          DRY_RUN: 'false'

@@ -1,0 +1,14 @@
+Covoiturage 4.4.0-beta.1 — TEST
+Firebase TEST déjà configuré dans public-config.js.
+
+À faire :
+1. Créer Firestore TEST en mode Production (Europe).
+2. Authentication > activer Anonyme.
+3. Publier firestore.rules.test-bootstrap.txt.
+4. Créer le dépôt GitHub public team-tool-test et y envoyer le contenu de ce dossier.
+5. Activer GitHub Pages : main / root.
+6. Ouvrir /setup-test.html et initialiser l'accès Igor.
+7. Publier immédiatement firestore.rules.test.txt.
+8. Supprimer setup-test.html du dépôt.
+9. Copier une photo de PROD vers TEST avec l'outil snapshot fourni séparément.
+10. Notifications : ajouter plus tard la clé VAPID publique dans public-config.js puis le secret GitHub du compte de service.
