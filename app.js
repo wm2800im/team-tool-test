@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.3';
+const APP_VERSION = ENV.version || '4.4.0-beta.4';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -307,7 +307,7 @@ function initStaticUI(){
   $('summaryPeriod').addEventListener('change',()=>{renderSummary();renderHistory();}); $('historyFilter').addEventListener('input',renderHistory); $('exportHistory').addEventListener('click',exportHistoryCSV); $('installBtn').addEventListener('click',installPwa);
   $('menuBtn').addEventListener('click',openSettingsMenu); $('closeMenuBtn').addEventListener('click',closeSettingsMenu); $('menuBackdrop').addEventListener('click',closeSettingsMenu); $('openAdminBtn').addEventListener('click',()=>{closeSettingsMenu();openPage('admin');});
   $('aboutToggle').addEventListener('click',()=>{const details=$('aboutDetails');const open=details.style.display!=='none';details.style.display=open?'none':'block';$('aboutToggle').classList.toggle('open',!open);});
-  $('donateBtn').addEventListener('click',()=>toast('☕ Merci 😄 Aucun paiement prélevé : le soutien moral suffit pour l’instant.'));
+  $('donateBtn').addEventListener('click',()=>toast('☕ Merci 😄'));
   $('notificationsToggle').addEventListener('change',toggleNotifications); qsa('[data-theme]').forEach(b=>b.addEventListener('click',()=>saveTheme(b.dataset.theme)));
   $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot);
   $('testUserSwitch').addEventListener('change',()=>switchTestUser($('testUserSwitch').value));
@@ -530,7 +530,14 @@ function loadValidatedIntoPlan(date){
 async function deleteHistoryGroup(date,id){
   const day=tripDays.get(date);if(!day)return;const groups=(day.groups||[]).filter(g=>(g.id||'')!==id);
   if(!confirm(`Supprimer ce trajet du ${fmtDate(date)} ?`))return;
-  try{if(groups.length)await setDoc(doc(db,'tripDays',date),{...day,groups,updatedAt:serverTimestamp(),updatedBy:profileId});else await deleteDoc(doc(db,'tripDays',date));toast('Trajet supprimé.');}catch(e){alert(friendlyError(e));}
+  const previous=day;
+  if(groups.length)tripDays.set(date,{...day,groups,updatedBy:profileId});else tripDays.delete(date);
+  if(activePage('tomorrow'))renderTomorrow();if(activePage('groups')){renderGroups();renderValidatedInfo(date);}if(activePage('history')){renderSummary();renderHistory();}
+  toast('Trajet supprimé · enregistrement…');
+  try{
+    if(groups.length)await setDoc(doc(db,'tripDays',date),{...day,groups,updatedAt:serverTimestamp(),updatedBy:profileId});else await deleteDoc(doc(db,'tripDays',date));
+    toast('✓ Trajet supprimé');
+  }catch(e){tripDays.set(date,previous);refreshForData('tripDays');alert(friendlyError(e));}
 }
 
 function periodMatch(date,period){if(period==='month')return date.startsWith(currentYM());if(period==='year')return date.startsWith(`${nowYear()}-`);return true;}
@@ -665,7 +672,7 @@ function renderQuickProposal(ds){
       <div class="proposal-driver-row"><label>Conducteur réel</label><select class="quick-driver input" data-id="${g.id}">${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div>
     </div>`;
   }).join('');
-  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>Covoiturage proposé</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${proposal.singles.length?`<div class="group-warning">Sans groupe : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${sameAsValidated?'disabled':''}>${sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div><div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
+  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>Covoiturage proposé</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${proposal.singles.length?`<div class="group-warning">Sans groupe : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${sameAsValidated?'disabled':''}>${sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
   box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',()=>{
     const current=proposalForDate(ds).groups.map(g=>({...g})); const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-','')); if(!target)return; target.driver=sel.value;
     const savePromise=savePlan(ds,current); const state=$('quickSaveState'); if(state)state.textContent='Enregistrement du conducteur…';
@@ -673,6 +680,7 @@ function renderQuickProposal(ds){
   }));
   const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
   $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
+  const resetBtn=$('quickResetTest');if(resetBtn)resetBtn.addEventListener('click',()=>resetTestTrip(ds));
 }
 
 async function validateGroupsForDate(ds,groups){
@@ -682,6 +690,22 @@ async function validateGroupsForDate(ds,groups){
   tripDays.set(ds,{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedBy:profileId}); plans.set(ds,{date:ds,groups:normalized,updatedBy:profileId}); if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups')){renderGroups();renderValidatedInfo(ds);} if(activePage('history')){renderSummary();renderHistory();}
   try{await Promise.all([setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);toast('✓ Trajet enregistré');}
   catch(e){if(previousTrip)tripDays.set(ds,previousTrip);else tripDays.delete(ds);if(previousPlan)plans.set(ds,previousPlan);else plans.delete(ds);refreshForData('tripDays');refreshForData('plans');throw e;}
+}
+
+async function resetTestTrip(ds){
+  if(!IS_TEST||linkedProfileId!=='igor')return;
+  const previousTrip=tripDays.get(ds),previousPlan=plans.get(ds);
+  tripDays.delete(ds);plans.delete(ds);
+  if(activePage('tomorrow'))renderTomorrow();if(activePage('groups')){renderGroups();renderValidatedInfo(ds);}if(activePage('history')){renderSummary();renderHistory();}
+  toast('🧪 Trajet TEST réinitialisé · enregistrement…');
+  try{
+    await Promise.all([deleteDoc(doc(db,'tripDays',ds)),deleteDoc(doc(db,'plans',ds))]);
+    toast('✓ Prêt pour un nouveau test');
+  }catch(e){
+    if(previousTrip)tripDays.set(ds,previousTrip);
+    if(previousPlan)plans.set(ds,previousPlan);
+    refreshForData('tripDays');refreshForData('plans');alert(friendlyError(e));
+  }
 }
 
 function counterSnapshotAfterTrip(t){

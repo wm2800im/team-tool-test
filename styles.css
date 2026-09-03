@@ -201,3 +201,52 @@ html[data-theme="dark"] .validated-summary{background:#10231b}
   .proposal-shell{padding:8px}.proposal-main-line{font-size:11px}.proposal-suggested{font-size:9px}.proposal-counter-line{font-size:9.5px}.proposal-driver-row{grid-template-columns:auto 1fr;gap:6px}.proposal-driver-row label{font-size:10px}.proposal-driver-row select{font-size:10.5px;padding:6px}
   .quick-actions{grid-template-columns:1.25fr .75fr;gap:5px}.quick-actions .btn{font-size:10.5px;padding:8px 6px}
 }
+
+
+/* 4.4.0-beta.4 — lisibilité mobile, À propos et reset TEST */
+.about-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.coffee-icon-btn{width:42px;height:42px;border:1px solid var(--line);border-radius:50%;background:var(--card);font-size:21px;display:grid;place-items:center;cursor:pointer;box-shadow:var(--shadow);transition:transform .12s ease,background .12s ease}
+.coffee-icon-btn:active{transform:scale(.93)}
+.coffee-icon-btn:hover{background:var(--soft)}
+.test-reset-link{display:block;margin:7px auto 0;border:0;background:transparent;color:#7b2cbf;font-size:11px;font-weight:800;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+html[data-theme="dark"] .coffee-icon-btn{background:#151b22;color:var(--ink)}
+
+@media(max-width:620px){
+  /* Utiliser davantage la hauteur disponible : moins miniature, sans recréer de scroll excessif. */
+  main{margin-top:8px;padding-left:8px;padding-right:8px;padding-bottom:28px}
+  .tomorrow-card{padding:10px;border-radius:15px}
+  .tomorrow-middle{grid-template-columns:minmax(0,.84fr) minmax(0,1.16fr);gap:8px}
+  .mini-panel{padding:10px 10px;min-height:300px;border-radius:13px}
+  .next-panel-head h3,.collective-panel h3{font-size:15px;margin-bottom:7px}
+  .next-date{font-size:16px;line-height:1.18;margin-bottom:10px}
+  .next-status-stack{gap:7px}
+  .next-status-stack .status-btn{min-height:46px;padding:9px 9px;font-size:13px;border-radius:11px;font-weight:800}
+  .collective-compact .compact-person{padding:7px 0;gap:7px}
+  .collective-compact .compact-person .avatar{width:30px;height:30px;font-size:11px}
+  .collective-compact .compact-person strong{font-size:13.5px}
+  .collective-compact .compact-person .pill{font-size:10.5px;padding:4px 7px}
+  .responses-count{font-size:11.5px;margin-top:7px}
+  .proposal-bottom{margin-top:9px}
+  .proposal-shell{padding:12px 12px;border-radius:14px}
+  .proposal-shell .proposal-head h3{font-size:15px}
+  .proposal-main-line{font-size:13.5px;gap:7px}
+  .proposal-suggested{font-size:10.5px}
+  .proposal-counter-line{font-size:11.5px;margin-top:4px;line-height:1.35}
+  .proposal-driver-row{margin-top:9px;grid-template-columns:auto 1fr;gap:8px}
+  .proposal-driver-row label{font-size:12px}
+  .proposal-driver-row select{font-size:13px;padding:9px 9px;border-radius:10px}
+  .quick-actions{gap:7px;margin-top:10px}
+  .quick-actions .btn{font-size:12.5px;padding:11px 8px;min-height:44px}
+  .validated-summary{padding:9px 10px;margin-top:9px}
+  .validated-title{font-size:13px}.validated-line{font-size:11.5px;line-height:1.4}
+  .test-reset-link{font-size:10.5px;margin-top:8px}
+}
+
+@media(min-width:621px){
+  .tomorrow-middle{grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr)}
+  .mini-panel{min-height:330px}
+  .next-status-stack .status-btn{min-height:48px;font-size:14px}
+  .collective-compact .compact-person{padding:8px 0}
+  .collective-compact .compact-person strong{font-size:14px}
+  .proposal-shell{padding:14px 16px}
+}
