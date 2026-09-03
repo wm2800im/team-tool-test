@@ -31,22 +31,23 @@
 
 <div id="appShell" style="display:none">
 <header class="compact-header">
-  <div class="header-row">
-    <div class="identity-min"><span id="identityName">—</span><span id="simulatedBadge" class="test-chip" style="display:none"></span></div>
-    <div class="row"><button id="installBtn" class="icon-btn" title="Installer" style="display:none">⬇</button><button id="menuBtn" class="icon-btn menu-btn" aria-label="Paramètres">☰</button></div>
+  <div class="top-nav-row">
+    <button id="menuBtn" class="icon-btn menu-btn" aria-label="Menu">☰</button>
+    <nav id="nav">
+      <button data-page="tomorrow" class="active">Prochain</button>
+      <button data-page="planning">Planning</button>
+      <button data-page="groups">Groupes</button>
+      <button data-page="history">Historique</button>
+    </nav>
+    <span id="identityName" class="sr-only">—</span><span id="simulatedBadge" class="sr-only" style="display:none"></span>
   </div>
   <div id="connectionAlert" class="connection-alert" style="display:none">Hors connexion — les modifications seront indisponibles.</div>
-  <nav id="nav">
-    <button data-page="tomorrow" class="active">Prochain</button>
-    <button data-page="planning">Planning</button>
-    <button data-page="groups">Groupes</button>
-    <button data-page="history">Historique</button>
-  </nav>
 </header>
 
 <div id="menuBackdrop" class="menu-backdrop" style="display:none"></div>
 <aside id="sideMenu" class="side-menu" aria-hidden="true">
   <div class="side-menu-head"><div><strong id="menuProfileName">—</strong><div class="small muted">Paramètres</div></div><button id="closeMenuBtn" class="icon-btn">✕</button></div>
+  <div class="settings-block install-menu-block"><button id="installBtn" class="btn secondary full" style="display:none">Installer l’application</button></div>
   <div id="testSwitchBlock" class="settings-block" style="display:none">
     <h3>🧪 Utilisateur simulé</h3>
     <select id="testUserSwitch" class="input"></select>
@@ -55,29 +56,33 @@
   <div class="settings-block"><h3>Apparence</h3><div class="segmented"><button data-theme="auto">Auto</button><button data-theme="light">Clair</button><button data-theme="dark">Sombre</button></div></div>
   <div class="settings-block"><h3>Notifications</h3><label class="toggle-row"><span><strong>Rappel de saisie</strong><span class="small muted">À 20h si le lendemain est travaillé et non renseigné.</span></span><input id="notificationsToggle" type="checkbox"></label><div id="notificationStatus" class="small muted"></div></div>
   <div id="adminMenuBlock" class="settings-block" style="display:none"><button id="openAdminBtn" class="btn secondary full">Administration</button></div>
-  <div class="settings-block"><h3>À propos</h3><div class="small">Covoiturage · <span id="aboutVersion">—</span></div></div>
+  <div class="settings-block about-block">
+    <button id="aboutToggle" class="menu-link" type="button"><span>À propos</span><span>›</span></button>
+    <div id="aboutDetails" class="about-details" style="display:none">
+      <strong>Covoiturage</strong>
+      <div class="small muted">Version <span id="aboutVersion">—</span></div>
+      <div class="small muted">Application partagée du groupe de covoiturage.</div>
+    </div>
+  </div>
+  <div class="settings-block donate-block"><button id="donateBtn" class="donate-btn" type="button">☕ Offrir un café au développeur</button><div class="small muted" style="margin-top:6px">Bouton hautement symbolique 😄</div></div>
 </aside>
 
 <main>
 <section id="tomorrow" class="page active">
   <div class="card tomorrow-card">
-    <div class="tomorrow-heading">
-      <div><h1 id="tomorrowTitle">Prochain</h1><div class="muted tomorrow-subtitle" id="tomorrowSubtitle"></div></div>
-      <div id="tomorrowSaved" class="save-state small"></div>
-    </div>
-
-    <div class="status-buttons compact-status">
-      <button class="status-btn status-present" data-status="present">● Présent</button>
-      <button class="status-btn status-absent" data-status="absent">○ Absent</button>
-      <button class="status-btn status-alone" data-status="alone">🚗 Seul</button>
-      <button class="status-btn status-time" data-status="time">⏱ Impératif</button>
-    </div>
-    <div id="timeBox" class="row compact-timebox" style="display:none"><div class="field"><label>Départ au plus tard</label><select id="timeLimit"></select></div><button class="btn" id="saveTime">Enregistrer</button></div>
-
     <div class="tomorrow-middle">
       <div class="mini-panel my-next-panel">
-        <h3>Mon prochain</h3>
-        <div id="myTomorrowSummary" class="my-tomorrow-summary"></div>
+        <div class="next-panel-head"><h3>Prochain</h3><div id="tomorrowSaved" class="save-state-dot" aria-label="État de saisie"></div></div>
+        <div id="tomorrowTitle" class="next-date">—</div>
+        <div id="tomorrowSubtitle" class="sr-only"></div>
+        <div class="status-buttons next-status-stack">
+          <button class="status-btn status-present" data-status="present">● Présent</button>
+          <button class="status-btn status-absent" data-status="absent">○ Absent</button>
+          <button class="status-btn status-alone" data-status="alone">🚗 Seul</button>
+          <button class="status-btn status-time" data-status="time">⏱ Impératif</button>
+        </div>
+        <div id="myTomorrowSummary" class="sr-only"></div>
+        <div id="timeBox" class="compact-timebox" style="display:none"><div class="field"><label>Départ au plus tard</label><select id="timeLimit"></select></div><button class="btn smallbtn" id="saveTime">OK</button></div>
         <div id="timeCompatibilityBox" class="compat-box compact-compat" style="display:none"></div>
       </div>
       <div class="mini-panel collective-panel">
@@ -85,7 +90,6 @@
         <div id="collectiveTomorrow" class="collective-compact"></div>
       </div>
     </div>
-
     <div id="quickProposal" class="quick-proposal proposal-bottom"></div>
   </div>
 </section>
