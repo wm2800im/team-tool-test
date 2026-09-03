@@ -153,8 +153,6 @@ html[data-theme="dark"] .donate-btn{background:#151b22;color:var(--brand);border
 .next-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .next-panel-head h3,.collective-panel h3{font-size:13px;margin:0 0 5px}
 .next-date{font-size:14px;font-weight:850;color:var(--brand);margin-bottom:8px;line-height:1.2;text-transform:capitalize}
-.save-state-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);flex:0 0 auto;box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 12%,transparent)}
-.save-state-dot.saved{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 13%,transparent)}
 .next-status-stack{display:grid;grid-template-columns:1fr;gap:5px}
 .next-status-stack .status-btn{min-height:34px;padding:7px 8px;text-align:left;font-size:12px;border-radius:9px}
 .next-status-stack .status-btn.selected{outline:2px solid var(--brand);outline-offset:-1px}
@@ -250,3 +248,10 @@ html[data-theme="dark"] .coffee-icon-btn{background:#151b22;color:var(--ink)}
   .collective-compact .compact-person strong{font-size:14px}
   .proposal-shell{padding:14px 16px}
 }
+
+/* beta.5 */
+.notification-test-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.coffee-link-btn{border:0;background:transparent;padding:8px 0;color:var(--text);font:inherit;font-weight:700;cursor:pointer;display:inline-flex;gap:7px;align-items:center}.coffee-link-btn:hover{text-decoration:underline}.coffee-thanks{margin-top:2px;font-weight:700}.proposal-pending{border:1px solid #e6b95d;background:#fff8e7;color:#70500b;border-radius:12px;padding:10px 12px;margin:8px 0}.proposal-pending strong{display:block;margin-bottom:2px}[data-theme="dark"] .proposal-pending{background:#3b321c;color:#ffe8a3;border-color:#705c26}
+
+/* beta.6 */
+.validated-line{display:block}
+.validated-line span{display:block}

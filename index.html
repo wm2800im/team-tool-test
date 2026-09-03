@@ -54,13 +54,14 @@
     <div class="small muted">Le compte Firebase réel reste Igor. Seules les données métier sont simulées.</div>
   </div>
   <div class="settings-block"><h3>Apparence</h3><div class="segmented"><button data-theme="auto">Auto</button><button data-theme="light">Clair</button><button data-theme="dark">Sombre</button></div></div>
-  <div class="settings-block"><h3>Notifications</h3><label class="toggle-row"><span><strong>Rappel de saisie</strong><span class="small muted">À 20h si le lendemain est travaillé et non renseigné.</span></span><input id="notificationsToggle" type="checkbox"></label><div id="notificationStatus" class="small muted"></div></div>
+  <div class="settings-block"><h3>Notifications</h3><label class="toggle-row"><span><strong>Rappel de saisie</strong><span class="small muted">À 20h si le lendemain est travaillé et non renseigné.</span></span><input id="notificationsToggle" type="checkbox"></label><div id="notificationStatus" class="small muted"></div><div id="notificationTestActions" class="notification-test-actions" style="display:none"><button id="localNotificationTestBtn" class="btn secondary smallbtn" type="button">🔔 Tester maintenant</button><button id="copyFcmTokenBtn" class="btn ghost smallbtn" type="button">Copier le jeton FCM</button></div></div>
   <div id="adminMenuBlock" class="settings-block" style="display:none"><button id="openAdminBtn" class="btn secondary full">Administration</button></div>
   <div class="settings-block about-block">
     <button id="aboutToggle" class="menu-link" type="button"><span>À propos</span><span>›</span></button>
     <div id="aboutDetails" class="about-details" style="display:none">
-      <div class="about-title-row"><div><strong>Covoiturage</strong><div class="small muted">Version <span id="aboutVersion">—</span></div></div><button id="donateBtn" class="coffee-icon-btn" type="button" aria-label="Offrir un café au développeur" title="Offrir un café au développeur">☕</button></div>
+      <div class="about-title-row"><div><strong>Covoiturage</strong><div class="small muted">Version <span id="aboutVersion">—</span></div></div></div>
       <div class="small muted">Application partagée du groupe de covoiturage.</div>
+      <button id="donateBtn" class="coffee-link-btn" type="button">☕ <span>Offrir un café</span></button><div id="coffeeThanks" class="small coffee-thanks" style="display:none">Merci 😄</div>
     </div>
   </div>
 </aside>
@@ -70,7 +71,7 @@
   <div class="card tomorrow-card">
     <div class="tomorrow-middle">
       <div class="mini-panel my-next-panel">
-        <div class="next-panel-head"><h3>Prochain</h3><div id="tomorrowSaved" class="save-state-dot" aria-label="État de saisie"></div></div>
+        <div class="next-panel-head"><h3>Prochain</h3></div>
         <div id="tomorrowTitle" class="next-date">—</div>
         <div id="tomorrowSubtitle" class="sr-only"></div>
         <div class="status-buttons next-status-stack">
