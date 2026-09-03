@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.1';
+const APP_VERSION = ENV.version || '4.4.0-beta.2';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -261,23 +261,38 @@ function friendlyError(err){
   return err?.message||String(err);
 }
 
+function activePage(id){ return $(id)?.classList.contains('active'); }
+function refreshForData(name){
+  if(!profileId || $('appShell').style.display==='none')return;
+  if(name==='profiles'){ $('identityName').textContent=label(profileId); renderSettings(); return; }
+  if(name==='availability'){ if(activePage('tomorrow'))renderTomorrow(); if(activePage('planning'))renderPlanning(); if(activePage('groups'))renderGroups(); if(activePage('history'))renderSummary(); return; }
+  if(name==='legacyStatus'){ if(activePage('history'))renderSummary(); return; }
+  if(name==='compatibilities'){ if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); return; }
+  if(name==='plans'){ if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); return; }
+  if(name==='tripDays'){ if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); if(activePage('history')){renderSummary();renderHistory();} return; }
+  if(name==='preferences'){ applyTheme(); renderSettings(); return; }
+  if(name==='calendar'){ if(activePage('tomorrow'))renderTomorrow(); if(activePage('planning'))renderPlanning(); if(activePage('groups'))renderGroups(); if(activePage('admin'))renderAdmin(); }
+}
 function subscribeSharedData(){
   setLoading('Chargement des données…','Synchronisation de l’historique et des disponibilités.');
+  let initialRendered=false;
+  const completeInitial=()=>{
+    if(initializedSnapshots.size>=8 && !initialRendered){ initialRendered=true; hideLoading(); renderAll(); }
+  };
   const watch=(name,ref,handler)=>{
     const off=onSnapshot(ref,snap=>{
-      handler(snap); initializedSnapshots.add(name);
-      if(initializedSnapshots.size>=8){ hideLoading(); renderAll(); }
+      handler(snap); initializedSnapshots.add(name); completeInitial(); if(initialRendered)refreshForData(name);
     },err=>{console.error(name,err);showConnectionAlert('Erreur de synchronisation');});
     unsubscribers.push(off);
   };
-  watch('profiles',collection(db,'profiles'),snap=>{ profiles=new Map(snap.docs.map(d=>[d.id,d.data()])); $('identityName').textContent=label(profileId); renderSettings(); });
-  watch('availability',collection(db,'availability'),snap=>{ availability=new Map(snap.docs.map(d=>[d.id,d.data()])); renderAll(); });
-  watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); renderAll(); });
-  watch('compatibilities',collection(db,'compatibilities'),snap=>{ compatibilities=new Map(snap.docs.map(d=>[d.id,d.data()])); renderAll(); });
-  watch('plans',collection(db,'plans'),snap=>{ plans=new Map(snap.docs.map(d=>[d.id,d.data()])); renderAll(); });
-  watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); renderAll(); });
-  watch('preferences',collection(db,'preferences'),snap=>{ preferences=new Map(snap.docs.map(d=>[d.id,d.data()])); applyTheme(); renderSettings(); });
-  const offCalendar=onSnapshot(doc(db,'config','calendar'),snap=>{ calendarConfig=snap.exists()?snap.data():{exceptions:[]}; initializedSnapshots.add('calendar'); if(initializedSnapshots.size>=8){ hideLoading(); renderAll(); } renderAdmin(); },err=>{console.error('calendar',err); initializedSnapshots.add('calendar'); if(initializedSnapshots.size>=8){hideLoading();renderAll();}});
+  watch('profiles',collection(db,'profiles'),snap=>{ profiles=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('availability',collection(db,'availability'),snap=>{ availability=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('compatibilities',collection(db,'compatibilities'),snap=>{ compatibilities=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('plans',collection(db,'plans'),snap=>{ plans=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  watch('preferences',collection(db,'preferences'),snap=>{ preferences=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+  const offCalendar=onSnapshot(doc(db,'config','calendar'),snap=>{ calendarConfig=snap.exists()?snap.data():{exceptions:[]}; initializedSnapshots.add('calendar'); completeInitial(); if(initialRendered)refreshForData('calendar'); },err=>{console.error('calendar',err); initializedSnapshots.add('calendar'); completeInitial();});
   unsubscribers.push(offCalendar);
 }
 
@@ -317,15 +332,22 @@ async function handleTomorrowStatus(st){
   $('timeBox').style.display='none';await setAvailability(nextCarpoolISO(),st,null);
 }
 async function setAvailability(date,status,time=null){
+  const key=availKey(date,profileId), previous=availability.get(key);
+  const optimistic={date,profileId,status,time:status==='time'?time:null,updatedByUid:authUser.uid};
+  availability.set(key,optimistic);
+  if(activePage('tomorrow'))renderTomorrow(); if(activePage('planning'))renderPlanning(); if(activePage('groups'))renderGroups(); if(activePage('history'))renderSummary();
+  toast(`${fmtDate(date,{weekday:'short',day:'numeric',month:'short'})} : ${statusMeta(optimistic).label} · enregistrement…`);
   try{
-    await setDoc(doc(db,'availability',availKey(date,profileId)),{
-      date,profileId,status,time:status==='time'?time:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid
-    });
-    toast(`${fmtDate(date,{weekday:'short',day:'numeric',month:'short'})} : ${statusMeta({status,time}).label}`);
-  }catch(e){alert(friendlyError(e));}
+    await setDoc(doc(db,'availability',key),{...optimistic,updatedAt:serverTimestamp()});
+    toast('✓ Enregistré');
+  }catch(e){
+    if(previous)availability.set(key,previous);else availability.delete(key);
+    refreshForData('availability'); alert(friendlyError(e));
+  }
 }
 async function clearAvailability(date){
-  try{await deleteDoc(doc(db,'availability',availKey(date,profileId)));toast('Saisie supprimée.');}catch(e){alert(friendlyError(e));}
+  const key=availKey(date,profileId),previous=availability.get(key); availability.delete(key); refreshForData('availability'); toast('Saisie supprimée · enregistrement…');
+  try{await deleteDoc(doc(db,'availability',key));toast('✓ Enregistré');}catch(e){if(previous)availability.set(key,previous);refreshForData('availability');alert(friendlyError(e));}
 }
 
 function renderAll(){
@@ -334,11 +356,15 @@ function renderAll(){
   if($('admin')?.classList.contains('active'))renderAdmin();
 }
 function renderTomorrow(){
-  const ds=nextCarpoolISO(); $('tomorrowTitle').textContent=`Prochain — ${fmtDate(ds)}`; $('tomorrowSubtitle').textContent='Statut et covoiturage proposé pour le prochain jour travaillé.';
-  const mine=getAvail(ds,profileId); qsa('.status-btn').forEach(b=>b.classList.toggle('selected',mine?.status===b.dataset.status)); $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15'; $('tomorrowSaved').textContent=mine?`Enregistré : ${statusMeta(mine).label}`:'Pas encore renseigné.';
+  const ds=nextCarpoolISO(); $('tomorrowTitle').textContent=`Prochain — ${fmtDate(ds)}`; $('tomorrowSubtitle').textContent='Prochain jour travaillé';
+  const mine=getAvail(ds,profileId),mineMeta=statusMeta(mine);
+  qsa('.status-btn').forEach(b=>b.classList.toggle('selected',mine?.status===b.dataset.status));
+  $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15';
+  $('tomorrowSaved').className=`save-state small ${mine?'saved':'missing'}`; $('tomorrowSaved').textContent=mine?`✓ ${mineMeta.label}`:'À renseigner';
+  const mineSummary=$('myTomorrowSummary'); if(mineSummary)mineSummary.innerHTML=mine?`<div class="my-status-large ${mineMeta.cls}">${mineMeta.label}</div><div class="small muted">${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}</div>`:`<div class="my-status-large missing">Non renseigné</div><div class="small muted">Choisis ton statut ci-dessus.</div>`;
   const box=$('collectiveTomorrow');box.innerHTML='';let answered=0;
-  PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=statusMeta(v);const row=document.createElement('div');row.className='person-row';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
-  const count=document.createElement('div');count.className='footer-note';count.textContent=`${answered}/5 réponses reçues`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds);
+  PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=statusMeta(v);const row=document.createElement('div');row.className='person-row compact-person';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
+  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds);
 }
 function renderTimeCompatibility(ds,mine){
   const box=$('timeCompatibilityBox');
@@ -357,13 +383,11 @@ function renderTimeCompatibility(ds,mine){
   box.querySelectorAll('.compat-btn').forEach(b=>b.addEventListener('click',()=>saveCompatibility(ds,b.dataset.owner,b.dataset.answer)));
 }
 async function saveCompatibility(date,owner,response){
-  const ownerV=getAvail(date,owner); if(ownerV?.status!=='time')return;
-  try{
-    await setDoc(doc(db,'compatibilities',compatKey(date,owner,profileId)),{
-      date,ownerId:owner,responderId:profileId,response,ownerTime:ownerV.time,updatedAt:serverTimestamp()
-    });
-    toast(response==='yes'?'Compatibilité validée.':'Incompatibilité enregistrée.');
-  }catch(e){alert(friendlyError(e));}
+  const ownerV=getAvail(date,owner); if(ownerV?.status!=='time')return; const key=compatKey(date,owner,profileId),previous=compatibilities.get(key);
+  const optimistic={date,ownerId:owner,responderId:profileId,response,ownerTime:ownerV.time}; compatibilities.set(key,optimistic);
+  if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); toast(response==='yes'?'Compatibilité validée · enregistrement…':'Incompatibilité enregistrée · enregistrement…');
+  try{await setDoc(doc(db,'compatibilities',key),{...optimistic,updatedAt:serverTimestamp()});toast('✓ Enregistré');}
+  catch(e){if(previous)compatibilities.set(key,previous);else compatibilities.delete(key);refreshForData('compatibilities');alert(friendlyError(e));}
 }
 
 function workingDays(start,count){
@@ -464,7 +488,11 @@ async function addSelectedGroup(){
   await savePlan(ds,groups);toast('Groupe ajouté.');
 }
 async function savePlan(date,groups){
-  await setDoc(doc(db,'plans',date),{date,groups:groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver})),updatedAt:serverTimestamp(),updatedBy:profileId});
+  const previous=plans.get(date); const normalized=groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver}));
+  plans.set(date,{date,groups:normalized,updatedBy:profileId});
+  if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups();
+  try{await setDoc(doc(db,'plans',date),{date,groups:normalized,updatedAt:serverTimestamp(),updatedBy:profileId});}
+  catch(e){if(previous)plans.set(date,previous);else plans.delete(date);refreshForData('plans');throw e;}
 }
 function renderDraftGroups(ds){
   const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';
@@ -492,10 +520,10 @@ function renderValidatedInfo(ds){
   if(!groups.length){box.innerHTML='';return;}
   box.innerHTML=`<div class="notice oknotice"><strong>${groups.length} trajet(s) déjà validé(s)</strong><div class="small">Valider de nouveau remplacera les groupes de cette date, ce qui évite les doublons.</div></div>`;
 }
-async function loadValidatedIntoPlan(date){
+function loadValidatedIntoPlan(date){
   const groups=tripGroupsForDate(date).map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members||g.participants||[]),driver:g.driver||g.driverId}));
-  if(groups.length)await savePlan(date,groups);
-  $('groupDate').value=date;openPage('groups');renderGroups();
+  $('groupDate').value=date; if(groups.length)savePlan(date,groups).catch(e=>alert(friendlyError(e)));
+  openPage('groups'); renderGroups(); toast('Trajet chargé pour modification.');
 }
 async function deleteHistoryGroup(date,id){
   const day=tripDays.get(date);if(!day)return;const groups=(day.groups||[]).filter(g=>(g.id||'')!==id);
@@ -512,10 +540,14 @@ function renderSummary(){
   const trackedDates=new Set(carpoolDates); current.forEach(v=>trackedDates.add(v.date)); legacy.forEach(v=>trackedDates.add(v.date));
   $('kDriver').textContent=driver; $('kPassenger').textContent=passenger; $('kCarpooled').textContent=carpoolDates.size; $('kTracked').textContent=trackedDates.size;
 }
+function buildHistoryCounterSnapshots(trips){
+  const states=new Map(),snapshots=new Map(); const ordered=[...trips].sort((a,b)=>a.date.localeCompare(b.date)||String(a.id).localeCompare(String(b.id)));
+  for(const t of ordered){const members=canonical(t.participants),key=members.join('|');let state=states.get(key);if(!state){state=Object.fromEntries(members.map(p=>[p,0]));states.set(key,state);}if(t.driver in state)state[t.driver]++;snapshots.set(`${t.date}|${t.id}`,{...state});}return snapshots;
+}
 function renderHistory(){
-  if(!$('historyList'))return; const all=flattenTrips().sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all);
+  if(!$('historyList'))return; const raw=flattenTrips(),counterSnapshots=buildHistoryCounterSnapshots(raw),all=[...raw].sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all);
   const q=($('historyFilter').value||'').trim().toLowerCase();let ts=all; if(q)ts=ts.filter(t=>`${t.date} ${groupCode(t.participants)} ${canonical(t.participants).map(label).join(' ')} ${label(t.driver)}`.toLowerCase().includes(q)); ts=ts.slice(0,300);
-  $('historyList').innerHTML=ts.map(t=>{const counts=counterSnapshotAfterTrip(t);return `<div class="hist-row"><div>${t.date}</div><div><strong>${groupCode(t.participants)}</strong> · ${canonical(t.participants).map(label).join(', ')}</div><div class="driver">🚗 ${label(t.driver)}</div><div class="hist-actions"><button class="btn secondary smallbtn edit-trip" data-date="${t.date}">Modifier</button><button class="btn danger smallbtn delete-trip" data-date="${t.date}" data-id="${t.id}">Suppr.</button></div><div class="hist-counter">Compteurs après ce trajet : ${canonical(t.participants).map(p=>`${label(p)} <strong>${counts[p]||0}</strong>`).join(' · ')}</div></div>`;}).join('')||'<div class="empty">Aucun résultat.</div>';
+  $('historyList').innerHTML=ts.map(t=>{const counts=counterSnapshots.get(`${t.date}|${t.id}`)||{};return `<div class="hist-row"><div>${t.date}</div><div><strong>${groupCode(t.participants)}</strong> · ${canonical(t.participants).map(label).join(', ')}</div><div class="driver">🚗 ${label(t.driver)}</div><div class="hist-actions"><button class="btn secondary smallbtn edit-trip" data-date="${t.date}">Modifier</button><button class="btn danger smallbtn delete-trip" data-date="${t.date}" data-id="${t.id}">Suppr.</button></div><div class="hist-counter">Compteurs après ce trajet : ${canonical(t.participants).map(p=>`${label(p)} <strong>${counts[p]||0}</strong>`).join(' · ')}</div></div>`;}).join('')||'<div class="empty">Aucun résultat.</div>';
   $('historyList').querySelectorAll('.edit-trip').forEach(b=>b.addEventListener('click',()=>loadValidatedIntoPlan(b.dataset.date))); $('historyList').querySelectorAll('.delete-trip').forEach(b=>b.addEventListener('click',()=>deleteHistoryGroup(b.dataset.date,b.dataset.id)));
 }
 function exportHistoryCSV(){
@@ -558,7 +590,7 @@ function closeSettingsMenu(){ $('menuBackdrop').style.display='none'; $('sideMen
 function pref(pid=profileId){ return preferences.get(pid)||{theme:'auto',notificationsEnabled:false}; }
 function resolvedTheme(theme){ if(theme==='dark'||theme==='light')return theme; return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
 function applyTheme(){ const theme=pref(profileId).theme||'auto'; document.documentElement.dataset.theme=resolvedTheme(theme); qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme)); }
-async function saveTheme(theme){ try{await setDoc(doc(db,'preferences',profileId),{theme,updatedAt:serverTimestamp()},{merge:true});applyTheme();}catch(e){alert(friendlyError(e));} }
+async function saveTheme(theme){ const previous=pref(profileId),optimistic={...previous,theme};preferences.set(profileId,optimistic);applyTheme();renderSettings();try{await setDoc(doc(db,'preferences',profileId),{theme,updatedAt:serverTimestamp()},{merge:true});}catch(e){preferences.set(profileId,previous);applyTheme();renderSettings();alert(friendlyError(e));} }
 function initSettingsUI(){
   $('aboutVersion').textContent=APP_VERSION; $('testBanner').style.display=IS_TEST?'block':'none'; $('testSwitchBlock').style.display=IS_TEST?'block':'none'; $('adminMenuBlock').style.display=linkedProfileId==='igor'?'block':'none';
   if(IS_TEST){$('testUserSwitch').innerHTML=PEOPLE.map(p=>`<option value="${p}">${label(p)}</option>`).join('');$('testUserSwitch').value=profileId;}
@@ -613,17 +645,36 @@ function autoSuggestedGroups(date){
   const part=best||order.map(p=>[p]); const singles=part.filter(g=>g.length===1).flat(); const groups=part.filter(g=>g.length>=2).map(g=>{const sug=driverSuggestion(date,g);return{id:`auto-${groupCode(g)}`,members:canonical(g),driver:sug.candidates[0]||canonical(g)[0]};}); return {groups,singles};
 }
 function proposalForDate(date){const saved=currentPlan(date);if(saved.length)return{groups:saved,singles:[],saved:true};const auto=autoSuggestedGroups(date);return{...auto,saved:false};}
+function normalizedGroupSignature(groups){return groups.map(g=>`${canonical(g.members||g.participants||[]).join('|')}>${g.driver||g.driverId||''}`).sort().join('||');}
+function validatedSummaryHTML(ds){
+  const groups=tripGroupsForDate(ds); if(!groups.length)return '';
+  const lines=groups.map((g,i)=>{const members=canonical(g.members||g.participants||[]),driver=g.driver||g.driverId,passengers=members.filter(p=>p!==driver);return `<div class="validated-line"><strong>${groups.length>1?`Groupe ${i+1} · `:''}${members.map(label).join(' · ')}</strong><span>🚗 ${label(driver)}${passengers.length?` · Passagers : ${passengers.map(label).join(', ')}`:''}</span></div>`;}).join('');
+  return `<div class="validated-summary"><div class="validated-title">✓ Covoiturage validé</div>${lines}</div>`;
+}
 function renderQuickProposal(ds){
-  const box=$('quickProposal'); if(!box)return; const proposal=proposalForDate(ds); const gs=proposal.groups;
-  if(!gs.length){box.innerHTML='<div class="empty">Pas encore de groupe de covoiturage proposé.</div>';return;}
-  box.innerHTML=`<h3>Covoiturage proposé ${proposal.saved?'<span class="small muted">· modifié manuellement</span>':''}</h3>`+gs.map((g,i)=>{const sug=driverSuggestion(ds,g.members);return `<div class="group-card"><strong>Groupe ${gs.length>1?i+1:''} · ${g.members.map(label).join(' · ')}</strong><div class="suggestion">${sug.candidates.length>1?`⚖️ Égalité : ${sug.candidates.map(label).join(' / ')}`:`🚗 Conducteur suggéré : ${label(sug.candidates[0])}`}<div class="small">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div></div><div class="field"><label>Conducteur réel / prévu</label><select class="quick-driver input" data-id="${g.id}">${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div></div>`;}).join('')+(proposal.singles.length?`<div class="group-warning">Sans groupe proposé : ${proposal.singles.map(label).join(', ')}</div>`:'')+`<div class="quick-actions"><button id="quickValidate" class="btn">✅ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}</button><button id="quickModify" class="btn secondary">Modifier les groupes</button></div>`;
-  box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',async()=>{const current=proposalForDate(ds).groups.map(g=>({...g}));const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-',''));if(target)target.driver=sel.value;await savePlan(ds,current);toast('Conducteur enregistré.');}));
-  $('quickValidate').addEventListener('click',()=>validateGroupsForDate(ds,proposalForDate(ds).groups)); $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
+  const box=$('quickProposal'); if(!box)return; const proposal=proposalForDate(ds),gs=proposal.groups,validated=tripGroupsForDate(ds);
+  if(!gs.length){box.innerHTML=validatedSummaryHTML(ds)||'<div class="empty compact-empty">Pas encore de groupe proposé.</div>';return;}
+  const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);
+  box.innerHTML=`<div class="proposal-head"><h3>Covoiturage proposé</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>`+
+    gs.map((g,i)=>{const sug=driverSuggestion(ds,g.members);return `<div class="group-card quick-group"><div class="quick-group-title"><strong>${gs.length>1?`Groupe ${i+1} · `:''}${g.members.map(label).join(' · ')}</strong></div><div class="quick-group-grid"><div class="suggestion compact-suggestion">${sug.candidates.length>1?`⚖️ ${sug.candidates.map(label).join(' / ')}`:`🚗 ${label(sug.candidates[0])}`}<div class="small">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div></div><div class="field quick-driver-field"><label>Conducteur réel</label><select class="quick-driver input" data-id="${g.id}">${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div></div></div>`;}).join('')+
+    (proposal.singles.length?`<div class="group-warning">Sans groupe : ${proposal.singles.map(label).join(', ')}</div>`:'')+
+    validatedSummaryHTML(ds)+
+    `<div class="quick-actions"><button id="quickValidate" class="btn" ${sameAsValidated?'disabled':''}>${sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✅ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div><div id="quickSaveState" class="small muted quick-save-state"></div>`;
+  box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',()=>{
+    const current=proposalForDate(ds).groups.map(g=>({...g})); const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-','')); if(!target)return; target.driver=sel.value;
+    const savePromise=savePlan(ds,current); const state=$('quickSaveState'); if(state)state.textContent='Enregistrement du conducteur…';
+    savePromise.then(()=>{const st=$('quickSaveState');if(st)st.textContent='✓ Conducteur enregistré';}).catch(e=>alert(friendlyError(e)));
+  }));
+  const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
+  $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
 }
 async function validateGroupsForDate(ds,groups){
   if(!groups.length)return;const overlap=groupsHaveOverlap(groups);if(overlap){alert(`${label(overlap)} apparaît dans plusieurs groupes.`);return;}for(const g of groups){if(g.members.length<2||!g.members.includes(g.driver)){alert('Un groupe est invalide.');return;}if(!isPastDate(ds)&&explicitIncompatibilities(ds,g.members).length){alert('Un groupe contient une incompatibilité horaire.');return;}}
-  const existing=tripDays.get(ds);if(existing?.groups?.length&&!confirm(`Des trajets sont déjà validés pour ${fmtDate(ds)}. Les remplacer ?`))return;const normalized=groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver,source:IS_TEST?'test':'app'}));
-  await setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId});await setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId});toast('Trajet(s) validé(s).');
+  const existing=tripDays.get(ds),same=existing?.groups?.length&&normalizedGroupSignature(existing.groups)===normalizedGroupSignature(groups);if(existing?.groups?.length&&!same&&!confirm(`Des trajets sont déjà validés pour ${fmtDate(ds)}. Les remplacer ?`))return;
+  const normalized=groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver,source:IS_TEST?'test':'app'})); const previousTrip=tripDays.get(ds),previousPlan=plans.get(ds);
+  tripDays.set(ds,{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedBy:profileId}); plans.set(ds,{date:ds,groups:normalized,updatedBy:profileId}); if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups')){renderGroups();renderValidatedInfo(ds);} if(activePage('history')){renderSummary();renderHistory();}
+  try{await Promise.all([setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);toast('✓ Trajet enregistré');}
+  catch(e){if(previousTrip)tripDays.set(ds,previousTrip);else tripDays.delete(ds);if(previousPlan)plans.set(ds,previousPlan);else plans.delete(ds);refreshForData('tripDays');refreshForData('plans');throw e;}
 }
 
 function counterSnapshotAfterTrip(t){

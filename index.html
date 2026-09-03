@@ -60,18 +60,33 @@
 
 <main>
 <section id="tomorrow" class="page active">
-  <div class="grid two">
-    <div class="card">
-      <h1 id="tomorrowTitle">Prochain</h1><div class="muted" id="tomorrowSubtitle"></div>
-      <h3>Mon statut</h3>
-      <div class="status-buttons"><button class="status-btn status-present" data-status="present">● Présent</button><button class="status-btn status-absent" data-status="absent">○ Absent</button><button class="status-btn status-alone" data-status="alone">🚗 Seul</button><button class="status-btn status-time" data-status="time">⏱ Impératif</button></div>
-      <div id="timeBox" class="row" style="margin-top:10px;display:none"><div class="field"><label>Départ au plus tard</label><select id="timeLimit"></select></div><button class="btn" id="saveTime">Enregistrer</button></div>
-      <div id="tomorrowSaved" class="small muted" style="margin-top:10px"></div><div id="timeCompatibilityBox" class="compat-box" style="display:none"></div>
+  <div class="card tomorrow-card">
+    <div class="tomorrow-heading">
+      <div><h1 id="tomorrowTitle">Prochain</h1><div class="muted tomorrow-subtitle" id="tomorrowSubtitle"></div></div>
+      <div id="tomorrowSaved" class="save-state small"></div>
     </div>
-    <div class="card">
-      <h2>Situation du groupe</h2><div id="collectiveTomorrow"></div>
-      <div id="quickProposal" class="quick-proposal"></div>
+
+    <div class="status-buttons compact-status">
+      <button class="status-btn status-present" data-status="present">● Présent</button>
+      <button class="status-btn status-absent" data-status="absent">○ Absent</button>
+      <button class="status-btn status-alone" data-status="alone">🚗 Seul</button>
+      <button class="status-btn status-time" data-status="time">⏱ Impératif</button>
     </div>
+    <div id="timeBox" class="row compact-timebox" style="display:none"><div class="field"><label>Départ au plus tard</label><select id="timeLimit"></select></div><button class="btn" id="saveTime">Enregistrer</button></div>
+
+    <div class="tomorrow-middle">
+      <div class="mini-panel my-next-panel">
+        <h3>Mon prochain</h3>
+        <div id="myTomorrowSummary" class="my-tomorrow-summary"></div>
+        <div id="timeCompatibilityBox" class="compat-box compact-compat" style="display:none"></div>
+      </div>
+      <div class="mini-panel collective-panel">
+        <h3>Situation du groupe</h3>
+        <div id="collectiveTomorrow" class="collective-compact"></div>
+      </div>
+    </div>
+
+    <div id="quickProposal" class="quick-proposal proposal-bottom"></div>
   </div>
 </section>
 

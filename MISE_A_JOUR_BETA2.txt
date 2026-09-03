@@ -1,0 +1,13 @@
+MISE À JOUR TEST 4.4.0-beta.2
+
+1. Dans le dépôt GitHub team-tool-test, remplace les fichiers de la racine par ceux de ce ZIP.
+2. Commit changes.
+3. Attends la publication GitHub Pages.
+4. Sur le navigateur/PWA TEST : recharge complètement. Si besoin Ctrl+Shift+R sur PC.
+5. Aucun changement Firebase ni Firestore Rules n'est nécessaire.
+
+À tester en priorité :
+- Prochain sur téléphone : encombrement vertical.
+- Clair/Sombre : changement immédiat.
+- Historique > Modifier : ouverture immédiate.
+- Prochain > choix conducteur > Valider : bloc récapitulatif visible et bouton « Trajet validé ».
