@@ -2,6 +2,7 @@ name: Apply beta.12 unvalidated trip reminder
 
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/apply-beta12-unvalidated-trip.yml'
 
@@ -16,99 +17,101 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+
       - name: Apply beta.12 changes
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import textwrap
 
           def replace_once(path, old, new):
               p=Path(path)
               text=p.read_text(encoding='utf-8')
-              if text.count(old)!=1:
-                  raise SystemExit(f'{path}: expected exactly one match, found {text.count(old)} for {old[:80]!r}')
+              count=text.count(old)
+              if count!=1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
               p.write_text(text.replace(old,new,1),encoding='utf-8')
 
-          # Version markers
           replace_once('app.js', "const APP_VERSION = ENV.version || '4.4.0-beta.11';", "const APP_VERSION = ENV.version || '4.4.0-beta.12';")
           replace_once('public-config.js', 'version: "4.4.0-beta.11"', 'version: "4.4.0-beta.12"')
           replace_once('service-worker.js', "const CACHE='covoiturage-4.4.0-beta.11';", "const CACHE='covoiturage-4.4.0-beta.12';")
 
-          # Alert slot on Prochain page
           replace_once(
               'index.html',
               '    </div>\n    <div id="quickProposal" class="quick-proposal proposal-bottom"></div>',
               '    </div>\n    <div id="unvalidatedTripAlert"></div>\n    <div id="quickProposal" class="quick-proposal proposal-bottom"></div>'
           )
 
-          # Keep already-assigned members visibly selected in Groupes.
           replace_once(
               'app.js',
               "    row.innerHTML=`<input type=\"checkbox\" class=\"group-check\" value=\"${p}\" ${can?'checked':'disabled'}><div class=\"avatar\">${INITIAL[p]}</div><div class=\"grow\"><strong>${label(p)}</strong><div class=\"small muted\">${info}</div></div>`;",
               "    const checked=assigned.has(p)||can,disabled=assigned.has(p)||!can;\n    row.innerHTML=`<input type=\"checkbox\" class=\"group-check\" value=\"${p}\" ${checked?'checked':''} ${disabled?'disabled':''}><div class=\"avatar\">${INITIAL[p]}</div><div class=\"grow\"><strong>${label(p)}</strong><div class=\"small muted\">${info}</div></div>`;"
           )
 
-          # Render reminder along with Prochain.
           replace_once(
               'app.js',
               "  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds);\n}",
               "  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderUnvalidatedTripAlert();\n}"
           )
 
-          # Reminder logic. Uses currentPlan when one exists; otherwise materializes the latest automatic proposal.
-          anchor="function workingDays(start,count){"
-          block=r'''function unvalidatedTripWhenLabel(ds){
-  const today=todayISO(),yesterday=iso(addDays(fromISO(today),-1));
-  if(ds===today)return 'd’aujourd’hui';
-  if(ds===yesterday)return 'd’hier';
-  return `du ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}`;
-}
-function recentUnvalidatedTripDate(){
-  if(!tripDaysReady)return null;
-  const now=appNowParts(),today=todayISO();
-  let d=fromISO(today);
-  for(let i=0;i<10;i++,d=addDays(d,-1)){
-    const ds=iso(d);
-    if(!isWorkingDayISO(ds))continue;
-    if(ds===today&&now.hour<9)continue;
-    if(tripGroupsForDate(ds).length)continue;
-    const proposal=proposalForDate(ds);
-    if(proposal.groups?.length)return ds;
-  }
-  return null;
-}
-function renderUnvalidatedTripAlert(){
-  const box=$('unvalidatedTripAlert');if(!box)return;
-  box.innerHTML='';
-  const ds=recentUnvalidatedTripDate();if(!ds)return;
-  const when=unvalidatedTripWhenLabel(ds);
-  box.innerHTML=`<div class="notice unvalidated-trip-notice"><div class="grow"><strong>⚠️ Trajet ${when} non validé</strong><div class="small muted">La dernière proposition est prête à être vérifiée.</div></div><button id="openUnvalidatedTrip" class="btn secondary smallbtn" type="button">Valider</button></div>`;
-  $('openUnvalidatedTrip').addEventListener('click',()=>openUnvalidatedTrip(ds));
-}
-async function openUnvalidatedTrip(ds){
-  try{
-    if(!currentPlan(ds).length){
-      const proposal=proposalForDate(ds);
-      if(proposal.groups?.length)await savePlan(ds,proposal.groups);
-    }
-    $('groupDate').value=ds;
-    openPage('groups');
-    renderGroups();
-    toast(`Proposition chargée pour ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}.`);
-  }catch(e){alert(friendlyError(e));}
-}
+          anchor='function workingDays(start,count){'
+          block=textwrap.dedent(r'''
+          function unvalidatedTripWhenLabel(ds){
+            const today=todayISO(),yesterday=iso(addDays(fromISO(today),-1));
+            if(ds===today)return 'd’aujourd’hui';
+            if(ds===yesterday)return 'd’hier';
+            return `du ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}`;
+          }
+          function recentUnvalidatedTripDate(){
+            if(!tripDaysReady)return null;
+            const now=appNowParts(),today=todayISO();
+            let d=fromISO(today);
+            for(let i=0;i<10;i++,d=addDays(d,-1)){
+              const ds=iso(d);
+              if(!isWorkingDayISO(ds))continue;
+              if(ds===today&&now.hour<9)continue;
+              if(tripGroupsForDate(ds).length)continue;
+              const proposal=proposalForDate(ds);
+              if(proposal.groups?.length)return ds;
+            }
+            return null;
+          }
+          function renderUnvalidatedTripAlert(){
+            const box=$('unvalidatedTripAlert');if(!box)return;
+            box.innerHTML='';
+            const ds=recentUnvalidatedTripDate();if(!ds)return;
+            const when=unvalidatedTripWhenLabel(ds);
+            box.innerHTML=`<div class="notice unvalidated-trip-notice"><div class="grow"><strong>⚠️ Trajet ${when} non validé</strong><div class="small muted">La dernière proposition est prête à être vérifiée.</div></div><button id="openUnvalidatedTrip" class="btn secondary smallbtn" type="button">Valider</button></div>`;
+            $('openUnvalidatedTrip').addEventListener('click',()=>openUnvalidatedTrip(ds));
+          }
+          async function openUnvalidatedTrip(ds){
+            try{
+              if(!currentPlan(ds).length){
+                const proposal=proposalForDate(ds);
+                if(proposal.groups?.length)await savePlan(ds,proposal.groups);
+              }
+              $('groupDate').value=ds;
+              openPage('groups');
+              renderGroups();
+              toast(`Proposition chargée pour ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}.`);
+            }catch(e){alert(friendlyError(e));}
+          }
 
-'''
-          p=Path('app.js');text=p.read_text(encoding='utf-8')
-          if text.count(anchor)!=1: raise SystemExit('workingDays anchor not unique')
+          ''')
+          p=Path('app.js')
+          text=p.read_text(encoding='utf-8')
+          if text.count(anchor)!=1:
+              raise SystemExit('workingDays anchor not unique')
           p.write_text(text.replace(anchor,block+anchor,1),encoding='utf-8')
 
-          # Compact alert styling
-          css='''\n/* 4.4.0-beta.12 — rappel trajet non validé */\n.unvalidated-trip-notice{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 2px}\n.unvalidated-trip-notice .small{margin-top:2px}\n@media(max-width:520px){.unvalidated-trip-notice{align-items:flex-start}.unvalidated-trip-notice .btn{flex:0 0 auto}}\n'''
-          p=Path('styles.css');text=p.read_text(encoding='utf-8')
-          if '4.4.0-beta.12 — rappel trajet non validé' in text: raise SystemExit('beta.12 CSS already present')
+          css='\n/* 4.4.0-beta.12 — rappel trajet non validé */\n.unvalidated-trip-notice{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 2px}\n.unvalidated-trip-notice .small{margin-top:2px}\n@media(max-width:520px){.unvalidated-trip-notice{align-items:flex-start}.unvalidated-trip-notice .btn{flex:0 0 auto}}\n'
+          p=Path('styles.css')
+          text=p.read_text(encoding='utf-8')
+          if '4.4.0-beta.12 — rappel trajet non validé' in text:
+              raise SystemExit('beta.12 CSS already present')
           p.write_text(text.rstrip()+css,encoding='utf-8')
 
-          # Safety checks
           checks={
             'app.js':["4.4.0-beta.12","function recentUnvalidatedTripDate()","function openUnvalidatedTrip(ds)","renderUnvalidatedTripAlert();","assigned.has(p)||can"],
             'index.html':['id="unvalidatedTripAlert"'],
@@ -119,16 +122,19 @@ async function openUnvalidatedTrip(ds){
           for fn,needles in checks.items():
               text=Path(fn).read_text(encoding='utf-8')
               for needle in needles:
-                  if needle not in text: raise SystemExit(f'{fn}: missing {needle}')
+                  if needle not in text:
+                      raise SystemExit(f'{fn}: missing {needle}')
           PY
           node --check app.js
           git diff --check
+
       - name: Commit beta.12
+        shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app.js index.html styles.css public-config.js service-worker.js
-          git commit -m 'feat: surface unvalidated recent trip'
+          git commit -m "feat: surface unvalidated recent trip"
           git rm .github/workflows/apply-beta12-unvalidated-trip.yml
           git commit --amend --no-edit
-          git push origin main
+          git push origin HEAD:main
