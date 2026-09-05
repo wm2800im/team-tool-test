@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.10';
+const APP_VERSION = ENV.version || '4.4.0-beta.11';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -27,7 +27,7 @@ const STATUS = {
   alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}
 };
 const LATE_UNKNOWN = 'late_unknown';
-const timeLabel = value => value===LATE_UNKNOWN ? 'Tard / inconnu' : (value||'');
+const timeLabel = value => value===LATE_UNKNOWN ? '?' : (value||'');
 
 
 let authUser = null;
@@ -319,6 +319,8 @@ function subscribeSharedData(){
 
 function initStaticUI(){
   fillTimeSelect($('timeLimit'),'16:15'); fillTimeSelect($('rangeTime'),'16:15');
+  const unknownHelp=document.createElement('div'); unknownHelp.id='timeUnknownHelp'; unknownHelp.className='small muted'; unknownHelp.textContent='? = heure de départ inconnue, dépendante de la situation.'; unknownHelp.style.display='none'; $('timeLimit').insertAdjacentElement('afterend',unknownHelp);
+  $('timeLimit').addEventListener('change',syncUnknownTimeHelp);
   const t=nextCarpoolISO(); $('groupDate').value=t; $('rangeStart').value=t; $('rangeEnd').value=iso(addDays(fromISO(t),4));
   qsa('#nav button[data-page]').forEach(b=>b.addEventListener('click',()=>openPage(b.dataset.page)));
   qsa('.status-btn').forEach(b=>b.addEventListener('click',()=>handleTomorrowStatus(b.dataset.status)));
@@ -337,6 +339,7 @@ function initStaticUI(){
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(console.warn);
   initMessaging().catch(console.warn);
 }
+function syncUnknownTimeHelp(){const help=$('timeUnknownHelp');if(help)help.style.display=$('timeLimit')?.value===LATE_UNKNOWN?'block':'none';}
 function fillTimeSelect(sel,value='16:15'){
   sel.innerHTML='';
   const start=15*60+15, end=18*60;
@@ -359,6 +362,7 @@ async function handleTomorrowStatus(st){
     const selected=(v?.status==='time'&&v?.time)?v.time:'16:15';
     $('timeLimit').value=selected;
     $('timeBox').style.display='flex';
+    syncUnknownTimeHelp();
     if(v?.status!=='time'||v?.time!==selected) await setAvailability(ds,'time',selected);
     return;
   }
@@ -392,7 +396,7 @@ function renderTomorrow(){
   const ds=nextCarpoolISO(); $('tomorrowTitle').textContent=fmtDate(ds); $('tomorrowSubtitle').textContent='Prochain jour travaillé';
   const mine=getAvail(ds,profileId),mineMeta=statusMeta(mine);
   qsa('.status-btn').forEach(b=>b.classList.toggle('selected',mine?.status===b.dataset.status));
-  $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15';
+  $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15'; syncUnknownTimeHelp();
   const mineSummary=$('myTomorrowSummary'); if(mineSummary)mineSummary.textContent='';
   const box=$('collectiveTomorrow');box.innerHTML='';let answered=0;
   PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=statusMeta(v);const row=document.createElement('div');row.className='person-row compact-person';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
