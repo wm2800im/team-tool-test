@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.13';
+const APP_VERSION = ENV.version || '4.4.0-beta.14';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -440,19 +440,17 @@ function unvalidatedTripWhenLabel(ds){
   if(ds===yesterday)return 'd’hier';
   return `du ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}`;
 }
+function previousWorkingDayISO(ds){
+  let d=addDays(fromISO(ds),-1);
+  while(!isWorkingDayISO(iso(d)))d=addDays(d,-1);
+  return iso(d);
+}
 function recentUnvalidatedTripDate(){
   if(!tripDaysReady)return null;
-  const now=appNowParts(),today=todayISO();
-  let d=fromISO(today);
-  for(let i=0;i<10;i++,d=addDays(d,-1)){
-    const ds=iso(d);
-    if(!isWorkingDayISO(ds))continue;
-    if(ds===today&&now.hour<9)continue;
-    if(tripGroupsForDate(ds).length)continue;
-    const proposal=proposalForDate(ds);
-    if(proposal.groups?.length)return ds;
-  }
-  return null;
+  const ds=previousWorkingDayISO(nextCarpoolISO());
+  if(tripGroupsForDate(ds).length)return null;
+  const proposal=proposalForDate(ds);
+  return proposal.groups?.length?ds:null;
 }
 function renderUnvalidatedTripAlert(){
   const box=$('unvalidatedTripAlert');if(!box)return;

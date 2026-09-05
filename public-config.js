@@ -2,7 +2,7 @@
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.4.0-beta.13",
+  version: "4.4.0-beta.14",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
