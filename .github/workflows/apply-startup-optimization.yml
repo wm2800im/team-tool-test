@@ -1,0 +1,97 @@
+name: Apply startup optimization
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-startup-optimization.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch startup path
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app.js')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  "let initializedSnapshots = new Set();\nlet appUiInitialized = false;",
+                  "let initializedSnapshots = new Set();\nlet tripDaysReady = false;\nlet legacyStatusReady = false;\nlet appUiInitialized = false;"
+              ),
+              (
+                  "function subscribeSharedData(){\n  setLoading('Chargement des données…','Synchronisation de l’historique et des disponibilités.');\n  let initialRendered=false;\n  const completeInitial=()=>{\n    if(initializedSnapshots.size>=8 && !initialRendered){ initialRendered=true; hideLoading(); renderAll(); }\n  };",
+                  "function subscribeSharedData(){\n  setLoading('Chargement du prochain covoiturage…','Synchronisation des disponibilités.');\n  let initialRendered=false;\n  let deferredStarted=false;\n  const criticalNames=['profiles','availability','compatibilities','plans','preferences','calendar'];\n  const startDeferred=()=>{\n    if(deferredStarted)return;\n    deferredStarted=true;\n    const begin=()=>{\n      watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); tripDaysReady=true; });\n      watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); legacyStatusReady=true; });\n    };\n    if('requestIdleCallback' in window) requestIdleCallback(begin,{timeout:1200});\n    else setTimeout(begin,150);\n  };\n  const completeInitial=()=>{\n    if(initialRendered || !criticalNames.every(name=>initializedSnapshots.has(name)))return;\n    initialRendered=true;\n    applyTheme();\n    renderTomorrow();\n    renderSettings();\n    hideLoading();\n    startDeferred();\n  };"
+              ),
+              (
+                  "  watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); });\n",
+                  ""
+              ),
+              (
+                  "  watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); });\n",
+                  ""
+              ),
+              (
+                  "  if(page==='groups')renderGroups(); if(page==='history'){renderSummary();renderHistory();} if(page==='admin')renderAdmin();",
+                  "  if(page==='tomorrow')renderTomorrow(); if(page==='planning')renderPlanning(); if(page==='groups')renderGroups(); if(page==='history'){renderSummary();renderHistory();} if(page==='admin')renderAdmin();"
+              ),
+              (
+                  "function renderQuickProposal(ds){\n  const box=$('quickProposal'); if(!box)return; const proposal=proposalForDate(ds),gs=proposal.groups,validated=tripGroupsForDate(ds);",
+                  "function renderQuickProposal(ds){\n  const box=$('quickProposal'); if(!box)return;\n  if(!tripDaysReady){box.innerHTML='<div class=\"empty compact-empty\">Calcul de la proposition…</div>';return;}\n  const proposal=proposalForDate(ds),gs=proposal.groups,validated=tripGroupsForDate(ds);"
+              ),
+              (
+                  "function renderGroups(){\n  if(!$('availablePeople'))return; const ds=$('groupDate').value||nextCarpoolISO();",
+                  "function renderGroups(){\n  if(!$('availablePeople'))return;\n  if(!tripDaysReady){\n    $('availablePeople').innerHTML='<div class=\"empty\">Chargement des compteurs de rotation…</div>';\n    if($('draftGroups'))$('draftGroups').innerHTML='';\n    if($('validatedTodayInfo'))$('validatedTodayInfo').innerHTML='';\n    if($('addGroup'))$('addGroup').disabled=true;\n    if($('validateTrips'))$('validateTrips').disabled=true;\n    return;\n  }\n  if($('addGroup'))$('addGroup').disabled=false;\n  const ds=$('groupDate').value||nextCarpoolISO();"
+              ),
+              (
+                  "function renderSummary(){\n  if(!$('summaryUser'))return; const period=$('summaryPeriod').value; $('summaryUser').textContent=label(profileId);",
+                  "function renderSummary(){\n  if(!$('summaryUser'))return;\n  $('summaryUser').textContent=label(profileId);\n  if(!tripDaysReady || !legacyStatusReady){\n    ['kDriver','kPassenger','kCarpooled','kTracked'].forEach(id=>{if($(id))$(id).textContent='…';});\n    return;\n  }\n  const period=$('summaryPeriod').value;"
+              ),
+              (
+                  "function renderHistory(){\n  if(!$('historyList'))return; const raw=flattenTrips(),counterSnapshots=buildHistoryCounterSnapshots(raw),all=[...raw].sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all);",
+                  "function renderHistory(){\n  if(!$('historyList'))return;\n  if(!tripDaysReady){\n    $('historyCount').textContent='…';\n    $('historyList').innerHTML='<div class=\"empty\">Chargement de l’historique…</div>';\n    return;\n  }\n  const raw=flattenTrips(),counterSnapshots=buildHistoryCounterSnapshots(raw),all=[...raw].sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all);"
+              ),
+          ]
+
+          for index, (old, new) in enumerate(replacements, 1):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Replacement {index}: expected exactly 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          grep -q "Chargement du prochain covoiturage" app.js
+          grep -q "tripDaysReady = false" app.js
+          grep -q "requestIdleCallback" app.js
+          grep -q "Calcul de la proposition" app.js
+
+      - name: Commit optimization
+        shell: bash
+        run: |
+          if git diff --quiet -- app.js; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js
+          git commit -m "perf: prioritize next carpool at startup"
+          git push origin HEAD:main
