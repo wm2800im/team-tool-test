@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.12';
+const APP_VERSION = ENV.version || '4.4.0-beta.13';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -554,7 +554,7 @@ function renderGroups(){
   renderGroupCompatibilityMessage(ds); renderDraftGroups(ds); renderValidatedInfo(ds);
 }
 function renderGroupCompatibilityMessage(ds){
-  const members=qsa('.group-check:checked').map(x=>x.value),msg=$('groupCompatibilityMessage');
+  const members=qsa('.group-check:checked:not(:disabled)').map(x=>x.value),msg=$('groupCompatibilityMessage');
   if(members.length<2){msg.innerHTML='';return;}
   if(isPastDate(ds)){
     const unusual=members.filter(p=>!isAvailable(getAvail(ds,p))).map(p=>`${label(p)} (${statusMeta(getAvail(ds,p)).label})`);
@@ -577,7 +577,7 @@ function driverSuggestion(ds,members){
   return {counts,candidates,key:groupCode(members)};
 }
 async function addSelectedGroup(){
-  const ds=$('groupDate').value;const members=qsa('.group-check:checked').map(x=>x.value);
+  const ds=$('groupDate').value;const members=qsa('.group-check:checked:not(:disabled)').map(x=>x.value);
   if(members.length<2||members.length>5){alert('Sélectionne entre 2 et 5 personnes.');return;}
   const bad=isPastDate(ds)?[]:explicitIncompatibilities(ds,members);if(bad.length){alert('Ce groupe contient une incompatibilité horaire explicite.');return;}
   const sug=driverSuggestion(ds,members);const groups=[...currentPlan(ds),{id:crypto.randomUUID(),members:canonical(members),driver:sug.candidates[0]||canonical(members)[0]}];
