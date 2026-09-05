@@ -1,0 +1,147 @@
+name: Apply imperative wording update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-imperatif-wording.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply requested changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {n}')
+              return text.replace(old, new, 1)
+
+          app = Path('app.js')
+          text = app.read_text(encoding='utf-8')
+
+          text = replace_once(
+              text,
+              "const APP_VERSION = ENV.version || '4.4.0-beta.7';",
+              "const APP_VERSION = ENV.version || '4.4.0-beta.9';",
+              'app fallback version'
+          )
+
+          text = replace_once(
+              text,
+              "const STATUS = {\n  present:{label:'Présent',cls:'present'}, absent:{label:'Absent',cls:'absent'},\n  alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}\n};",
+              "const STATUS = {\n  present:{label:'Présent',cls:'present'}, absent:{label:'Absent',cls:'absent'},\n  alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}\n};\nconst LATE_UNKNOWN = 'late_unknown';\nconst timeLabel = value => value===LATE_UNKNOWN ? 'Tard · heure inconnue' : (value||'');",
+              'late value helper'
+          )
+
+          text = replace_once(
+              text,
+              "  if(v.status==='time')return {label:`Impératif ${v.time||''}`.trim(),cls:'time'};",
+              "  if(v.status==='time')return {label:`Impératif ${timeLabel(v.time)}`.trim(),cls:'time'};",
+              'status label'
+          )
+
+          old_fill = """function fillTimeSelect(sel,value='16:15'){
+  sel.innerHTML='';
+  const start=15*60+15, end=18*60;
+  for(let total=start;total<=end;total+=15){
+    const h=Math.floor(total/60),m=total%60;
+    const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);
+  }
+  sel.value=[...sel.options].some(o=>o.value===value)?value:'16:15';
+}"""
+          new_fill = """function fillTimeSelect(sel,value='16:15'){
+  sel.innerHTML='';
+  const start=15*60+15, end=18*60;
+  for(let total=start;total<=end;total+=15){
+    const h=Math.floor(total/60),m=total%60;
+    const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);
+  }
+  const late=document.createElement('option');late.value=LATE_UNKNOWN;late.textContent=timeLabel(LATE_UNKNOWN);sel.appendChild(late);
+  sel.value=[...sel.options].some(o=>o.value===value)?value:'16:15';
+}"""
+          text = replace_once(text, old_fill, new_fill, 'time selector')
+
+          old_compat = """    const item=document.createElement('div');item.className='compat-item';
+    item.innerHTML=`<div><strong>${label(p)}</strong> doit partir au plus tard à <strong>${v.time}</strong>.</div><div class=\"small muted\">Peux-tu partir avec ${label(p)} à cet horaire ?</div>
+      <div class=\"compat-actions\"><button class=\"compat-btn yes ${current==='yes'?'selected':''}\" data-owner=\"${p}\" data-answer=\"yes\">✅ Oui</button><button class=\"compat-btn no ${current==='no'?'selected':''}\" data-owner=\"${p}\" data-answer=\"no\">❌ Non</button></div>`;"""
+          new_compat = """    const item=document.createElement('div');item.className='compat-item';
+    const lateUnknown=v.time===LATE_UNKNOWN;
+    const constraintText=lateUnknown
+      ? `<strong>${label(p)}</strong> veut partir tard, à une heure inconnue.`
+      : `<strong>${label(p)}</strong> veut partir à <strong>${timeLabel(v.time)}</strong>.`;
+    const question=lateUnknown
+      ? `Peux-tu partir avec ${label(p)} malgré cette incertitude ?`
+      : `Peux-tu partir avec ${label(p)} à cet horaire ?`;
+    item.innerHTML=`<div>${constraintText}</div><div class=\"small muted\">${question}</div>
+      <div class=\"compat-actions\"><button class=\"compat-btn yes ${current==='yes'?'selected':''}\" data-owner=\"${p}\" data-answer=\"yes\">✅ Oui</button><button class=\"compat-btn no ${current==='no'?'selected':''}\" data-owner=\"${p}\" data-answer=\"no\">❌ Non</button></div>`;"""
+          text = replace_once(text, old_compat, new_compat, 'compatibility wording')
+
+          text = replace_once(
+              text,
+              "  if(bad.length)msg.innerHTML=`<div class=\"group-error\">❌ Groupe incompatible : ${bad.map(x=>`${label(x.responder)} a refusé ${x.time} avec ${label(x.owner)}`).join(' · ')}</div>`;\n  else if(unknown.length)msg.innerHTML=`<div class=\"group-warning\">⚠️ Compatibilité non confirmée : ${unknown.map(x=>`${label(x.responder)} ↔ ${label(x.owner)} ${x.time}`).join(' · ')}</div>`;",
+              "  if(bad.length)msg.innerHTML=`<div class=\"group-error\">❌ Groupe incompatible : ${bad.map(x=>`${label(x.responder)} a refusé ${timeLabel(x.time)} avec ${label(x.owner)}`).join(' · ')}</div>`;\n  else if(unknown.length)msg.innerHTML=`<div class=\"group-warning\">⚠️ Compatibilité non confirmée : ${unknown.map(x=>`${label(x.responder)} ↔ ${label(x.owner)} ${timeLabel(x.time)}`).join(' · ')}</div>`;",
+              'group messages'
+          )
+
+          text = replace_once(
+              text,
+              "${proposal.rejected.map(x=>`${label(x.responder)} ne peut pas partir à ${x.time} avec ${label(x.owner)}`).join(' · ')}",
+              "${proposal.rejected.map(x=>`${label(x.responder)} ne peut pas partir avec ${label(x.owner)} · ${timeLabel(x.time)}`).join(' · ')}",
+              'proposal rejected wording'
+          )
+
+          app.write_text(text, encoding='utf-8')
+
+          index = Path('index.html')
+          html = index.read_text(encoding='utf-8')
+          html = replace_once(html, '<label>Départ au plus tard</label><select id="timeLimit"></select>', '<label>Départ</label><select id="timeLimit"></select>', 'main time label')
+          html = replace_once(html, '<label>Heure maxi</label><select id="rangeTime"></select>', '<label>Départ</label><select id="rangeTime"></select>', 'planning time label')
+          index.write_text(html, encoding='utf-8')
+
+          config = Path('public-config.js')
+          cfg = config.read_text(encoding='utf-8')
+          cfg = replace_once(cfg, 'version: "4.4.0-beta.8"', 'version: "4.4.0-beta.9"', 'public version')
+          config.write_text(cfg, encoding='utf-8')
+
+          sw = Path('service-worker.js')
+          swtext = sw.read_text(encoding='utf-8')
+          swtext = replace_once(swtext, "const CACHE='covoiturage-4.4.0-beta.8';", "const CACHE='covoiturage-4.4.0-beta.9';", 'cache version')
+          sw.write_text(swtext, encoding='utf-8')
+          PY
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          grep -q "const LATE_UNKNOWN = 'late_unknown'" app.js
+          grep -q "Tard · heure inconnue" app.js
+          grep -q "veut partir à" app.js
+          grep -q "veut partir tard, à une heure inconnue" app.js
+          grep -q '<label>Départ</label><select id="timeLimit"></select>' index.html
+          grep -q 'version: "4.4.0-beta.9"' public-config.js
+          grep -q "covoiturage-4.4.0-beta.9" service-worker.js
+          node --check app.js
+
+      - name: Commit requested changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html public-config.js service-worker.js
+          git commit -m "feat: add unknown late departure option"
+          git push origin HEAD:main
