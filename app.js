@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.11';
+const APP_VERSION = ENV.version || '4.4.0-beta.12';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -400,7 +400,7 @@ function renderTomorrow(){
   const mineSummary=$('myTomorrowSummary'); if(mineSummary)mineSummary.textContent='';
   const box=$('collectiveTomorrow');box.innerHTML='';let answered=0;
   PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=statusMeta(v);const row=document.createElement('div');row.className='person-row compact-person';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
-  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds);
+  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderUnvalidatedTripAlert();
 }
 function renderTimeCompatibility(ds,mine){
   const box=$('timeCompatibilityBox');
@@ -431,6 +431,48 @@ async function saveCompatibility(date,owner,response){
   if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); toast(response==='yes'?'Compatibilité validée · enregistrement…':'Incompatibilité enregistrée · enregistrement…');
   try{await setDoc(doc(db,'compatibilities',key),{...optimistic,updatedAt:serverTimestamp()});toast('✓ Enregistré');}
   catch(e){if(previous)compatibilities.set(key,previous);else compatibilities.delete(key);refreshForData('compatibilities');alert(friendlyError(e));}
+}
+
+
+function unvalidatedTripWhenLabel(ds){
+  const today=todayISO(),yesterday=iso(addDays(fromISO(today),-1));
+  if(ds===today)return 'd’aujourd’hui';
+  if(ds===yesterday)return 'd’hier';
+  return `du ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}`;
+}
+function recentUnvalidatedTripDate(){
+  if(!tripDaysReady)return null;
+  const now=appNowParts(),today=todayISO();
+  let d=fromISO(today);
+  for(let i=0;i<10;i++,d=addDays(d,-1)){
+    const ds=iso(d);
+    if(!isWorkingDayISO(ds))continue;
+    if(ds===today&&now.hour<9)continue;
+    if(tripGroupsForDate(ds).length)continue;
+    const proposal=proposalForDate(ds);
+    if(proposal.groups?.length)return ds;
+  }
+  return null;
+}
+function renderUnvalidatedTripAlert(){
+  const box=$('unvalidatedTripAlert');if(!box)return;
+  box.innerHTML='';
+  const ds=recentUnvalidatedTripDate();if(!ds)return;
+  const when=unvalidatedTripWhenLabel(ds);
+  box.innerHTML=`<div class="notice unvalidated-trip-notice"><div class="grow"><strong>⚠️ Trajet ${when} non validé</strong><div class="small muted">La dernière proposition est prête à être vérifiée.</div></div><button id="openUnvalidatedTrip" class="btn secondary smallbtn" type="button">Valider</button></div>`;
+  $('openUnvalidatedTrip').addEventListener('click',()=>openUnvalidatedTrip(ds));
+}
+async function openUnvalidatedTrip(ds){
+  try{
+    if(!currentPlan(ds).length){
+      const proposal=proposalForDate(ds);
+      if(proposal.groups?.length)await savePlan(ds,proposal.groups);
+    }
+    $('groupDate').value=ds;
+    openPage('groups');
+    renderGroups();
+    toast(`Proposition chargée pour ${fmtDate(ds,{weekday:'long',day:'numeric',month:'long'})}.`);
+  }catch(e){alert(friendlyError(e));}
 }
 
 function workingDays(start,count){
@@ -504,7 +546,8 @@ function renderGroups(){
     const v=getAvail(ds,p),m=statusMeta(v); const can=!assigned.has(p) && (past || isAvailable(v));
     const row=document.createElement('label');row.className='person-row';
     const info=assigned.has(p)?'Déjà dans un groupe':(past?`${m.label} · saisie a posteriori`:m.label);
-    row.innerHTML=`<input type="checkbox" class="group-check" value="${p}" ${can?'checked':'disabled'}><div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong><div class="small muted">${info}</div></div>`;
+    const checked=assigned.has(p)||can,disabled=assigned.has(p)||!can;
+    row.innerHTML=`<input type="checkbox" class="group-check" value="${p}" ${checked?'checked':''} ${disabled?'disabled':''}><div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong><div class="small muted">${info}</div></div>`;
     box.appendChild(row);
   });
   box.querySelectorAll('.group-check').forEach(c=>c.addEventListener('change',()=>renderGroupCompatibilityMessage(ds)));
