@@ -1,0 +1,70 @@
+name: Apply beta.11 unknown-time label
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-beta11.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch unknown time UI
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app.js')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+            ("const APP_VERSION = ENV.version || '4.4.0-beta.10';", "const APP_VERSION = ENV.version || '4.4.0-beta.11';"),
+            ("const timeLabel = value => value===LATE_UNKNOWN ? 'Tard / inconnu' : (value||'');", "const timeLabel = value => value===LATE_UNKNOWN ? '?' : (value||'');"),
+            ("  fillTimeSelect($('timeLimit'),'16:15'); fillTimeSelect($('rangeTime'),'16:15');", "  fillTimeSelect($('timeLimit'),'16:15'); fillTimeSelect($('rangeTime'),'16:15');\n  const unknownHelp=document.createElement('div'); unknownHelp.id='timeUnknownHelp'; unknownHelp.className='small muted'; unknownHelp.textContent='? = heure de départ inconnue, dépendante de la situation.'; unknownHelp.style.display='none'; $('timeLimit').insertAdjacentElement('afterend',unknownHelp);\n  $('timeLimit').addEventListener('change',syncUnknownTimeHelp);"),
+            ("function fillTimeSelect(sel,value='16:15'){", "function syncUnknownTimeHelp(){const help=$('timeUnknownHelp');if(help)help.style.display=$('timeLimit')?.value===LATE_UNKNOWN?'block':'none';}\nfunction fillTimeSelect(sel,value='16:15'){") ,
+            ("    $('timeLimit').value=selected;\n    $('timeBox').style.display='flex';", "    $('timeLimit').value=selected;\n    $('timeBox').style.display='flex';\n    syncUnknownTimeHelp();"),
+            ("  $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15';", "  $('timeBox').style.display=mine?.status==='time'?'flex':'none'; if(mine?.status==='time')$('timeLimit').value=mine.time||'16:15'; syncUnknownTimeHelp();"),
+          ]
+
+          for i,(old,new) in enumerate(replacements,1):
+            count=text.count(old)
+            if count != 1:
+              raise SystemExit(f'app.js replacement {i}: expected 1 match, found {count}')
+            text=text.replace(old,new,1)
+
+          path.write_text(text,encoding='utf-8')
+
+          p=Path('public-config.js')
+          s=p.read_text(encoding='utf-8')
+          old='version: "4.4.0-beta.10"'
+          if s.count(old)!=1: raise SystemExit('public-config version match failed')
+          p.write_text(s.replace(old,'version: "4.4.0-beta.11"',1),encoding='utf-8')
+
+          p=Path('service-worker.js')
+          s=p.read_text(encoding='utf-8')
+          old="const CACHE='covoiturage-4.4.0-beta.10';"
+          if s.count(old)!=1: raise SystemExit('service-worker cache match failed')
+          p.write_text(s.replace(old,"const CACHE='covoiturage-4.4.0-beta.11';",1),encoding='utf-8')
+          PY
+
+      - name: Validate JavaScript
+        run: node --check app.js
+
+      - name: Commit beta.11
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js public-config.js service-worker.js
+          git commit -m "ui: simplify unknown departure time"
+          git push origin HEAD:main
