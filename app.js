@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.9';
+const APP_VERSION = ENV.version || '4.4.0-beta.10';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -27,7 +27,7 @@ const STATUS = {
   alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}
 };
 const LATE_UNKNOWN = 'late_unknown';
-const timeLabel = value => value===LATE_UNKNOWN ? 'Tard · heure inconnue' : (value||'');
+const timeLabel = value => value===LATE_UNKNOWN ? 'Tard / inconnu' : (value||'');
 
 
 let authUser = null;
@@ -353,8 +353,16 @@ function openPage(page){
   if(page==='tomorrow')renderTomorrow(); if(page==='planning')renderPlanning(); if(page==='groups')renderGroups(); if(page==='history'){renderSummary();renderHistory();} if(page==='admin')renderAdmin();
 }
 async function handleTomorrowStatus(st){
-  if(st==='time'){const v=getAvail(nextCarpoolISO(),profileId);$('timeLimit').value=v?.time||'16:15';$('timeBox').style.display='flex';return;}
-  $('timeBox').style.display='none';await setAvailability(nextCarpoolISO(),st,null);
+  const ds=nextCarpoolISO();
+  if(st==='time'){
+    const v=getAvail(ds,profileId);
+    const selected=(v?.status==='time'&&v?.time)?v.time:'16:15';
+    $('timeLimit').value=selected;
+    $('timeBox').style.display='flex';
+    if(v?.status!=='time'||v?.time!==selected) await setAvailability(ds,'time',selected);
+    return;
+  }
+  $('timeBox').style.display='none';await setAvailability(ds,st,null);
 }
 async function setAvailability(date,status,time=null){
   const key=availKey(date,profileId), previous=availability.get(key);
