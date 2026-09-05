@@ -81,7 +81,7 @@
           <button class="status-btn status-time" data-status="time">⏱ Impératif</button>
         </div>
         <div id="myTomorrowSummary" class="sr-only"></div>
-        <div id="timeBox" class="compact-timebox" style="display:none"><div class="field"><label>Départ au plus tard</label><select id="timeLimit"></select></div><button class="btn smallbtn" id="saveTime">OK</button></div>
+        <div id="timeBox" class="compact-timebox" style="display:none"><div class="field"><label>Départ</label><select id="timeLimit"></select></div><button class="btn smallbtn" id="saveTime">OK</button></div>
         <div id="timeCompatibilityBox" class="compat-box compact-compat" style="display:none"></div>
       </div>
       <div class="mini-panel collective-panel">
@@ -95,7 +95,7 @@
 
 <section id="planning" class="page"><div class="card">
   <h1>Mon planning</h1><p class="muted">Renseigne une période entière puis ajuste une journée si besoin.</p>
-  <div class="row"><div class="field"><label>Du</label><input id="rangeStart" type="date"></div><div class="field"><label>Au</label><input id="rangeEnd" type="date"></div><div class="field"><label>Statut</label><select id="rangeStatus"><option value="present">Présent</option><option value="absent">Absent</option><option value="alone">Seul</option><option value="time">Impératif horaire</option></select></div><div class="field" id="rangeTimeField" style="display:none"><label>Heure maxi</label><select id="rangeTime"></select></div><button class="btn" id="applyRange">Appliquer aux jours travaillés</button></div>
+  <div class="row"><div class="field"><label>Du</label><input id="rangeStart" type="date"></div><div class="field"><label>Au</label><input id="rangeEnd" type="date"></div><div class="field"><label>Statut</label><select id="rangeStatus"><option value="present">Présent</option><option value="absent">Absent</option><option value="alone">Seul</option><option value="time">Impératif horaire</option></select></div><div class="field" id="rangeTimeField" style="display:none"><label>Départ</label><select id="rangeTime"></select></div><button class="btn" id="applyRange">Appliquer aux jours travaillés</button></div>
   <h3>Prochains jours travaillés</h3><div id="plannerList"></div>
 </div></section>
 

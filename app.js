@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.7';
+const APP_VERSION = ENV.version || '4.4.0-beta.9';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -26,6 +26,8 @@ const STATUS = {
   present:{label:'Présent',cls:'present'}, absent:{label:'Absent',cls:'absent'},
   alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}
 };
+const LATE_UNKNOWN = 'late_unknown';
+const timeLabel = value => value===LATE_UNKNOWN ? 'Tard · heure inconnue' : (value||'');
 
 
 let authUser = null;
@@ -119,7 +121,7 @@ function showAccess(message=''){
 function showApp(){ $('accessScreen').style.display='none'; $('appShell').style.display='block'; }
 function statusMeta(v){
   if(!v)return STATUS.missing;
-  if(v.status==='time')return {label:`Impératif ${v.time||''}`.trim(),cls:'time'};
+  if(v.status==='time')return {label:`Impératif ${timeLabel(v.time)}`.trim(),cls:'time'};
   return STATUS[v.status]||STATUS.missing;
 }
 function isAvailable(v){ return !!v && (v.status==='present'||v.status==='time'); }
@@ -343,6 +345,7 @@ function fillTimeSelect(sel,value='16:15'){
     const v=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
     const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);
   }
+  const late=document.createElement('option');late.value=LATE_UNKNOWN;late.textContent=timeLabel(LATE_UNKNOWN);sel.appendChild(late);
   sel.value=[...sel.options].some(o=>o.value===value)?value:'16:15';
 }
 function openPage(page){
@@ -397,7 +400,14 @@ function renderTimeCompatibility(ds,mine){
   constraints.forEach(({p,v})=>{
     const r=getCompat(ds,p,profileId); const current=(r&&r.ownerTime===v.time)?r.response:null;
     const item=document.createElement('div');item.className='compat-item';
-    item.innerHTML=`<div><strong>${label(p)}</strong> doit partir au plus tard à <strong>${v.time}</strong>.</div><div class="small muted">Peux-tu partir avec ${label(p)} à cet horaire ?</div>
+    const lateUnknown=v.time===LATE_UNKNOWN;
+    const constraintText=lateUnknown
+      ? `<strong>${label(p)}</strong> veut partir tard, à une heure inconnue.`
+      : `<strong>${label(p)}</strong> veut partir à <strong>${timeLabel(v.time)}</strong>.`;
+    const question=lateUnknown
+      ? `Peux-tu partir avec ${label(p)} malgré cette incertitude ?`
+      : `Peux-tu partir avec ${label(p)} à cet horaire ?`;
+    item.innerHTML=`<div>${constraintText}</div><div class="small muted">${question}</div>
       <div class="compat-actions"><button class="compat-btn yes ${current==='yes'?'selected':''}" data-owner="${p}" data-answer="yes">✅ Oui</button><button class="compat-btn no ${current==='no'?'selected':''}" data-owner="${p}" data-answer="no">❌ Non</button></div>`;
     box.appendChild(item);
   });
@@ -497,8 +507,8 @@ function renderGroupCompatibilityMessage(ds){
     return;
   }
   const bad=explicitIncompatibilities(ds,members),unknown=unknownCompatibilities(ds,members);
-  if(bad.length)msg.innerHTML=`<div class="group-error">❌ Groupe incompatible : ${bad.map(x=>`${label(x.responder)} a refusé ${x.time} avec ${label(x.owner)}`).join(' · ')}</div>`;
-  else if(unknown.length)msg.innerHTML=`<div class="group-warning">⚠️ Compatibilité non confirmée : ${unknown.map(x=>`${label(x.responder)} ↔ ${label(x.owner)} ${x.time}`).join(' · ')}</div>`;
+  if(bad.length)msg.innerHTML=`<div class="group-error">❌ Groupe incompatible : ${bad.map(x=>`${label(x.responder)} a refusé ${timeLabel(x.time)} avec ${label(x.owner)}`).join(' · ')}</div>`;
+  else if(unknown.length)msg.innerHTML=`<div class="group-warning">⚠️ Compatibilité non confirmée : ${unknown.map(x=>`${label(x.responder)} ↔ ${label(x.owner)} ${timeLabel(x.time)}`).join(' · ')}</div>`;
   else msg.innerHTML='';
 }
 function flattenTrips(){
@@ -773,7 +783,7 @@ function renderQuickProposal(ds){
       <div class="proposal-driver-row"><label>Conducteur réel</label><select class="quick-driver input" data-id="${g.id}">${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div>
     </div>`;
   }).join('');
-  const pendingHtml=proposal.pending?`<div class="proposal-pending"><strong>⏳ Répartition en attente</strong>${proposal.rejected?.length?`${proposal.rejected.map(x=>`${label(x.responder)} ne peut pas partir à ${x.time} avec ${label(x.owner)}`).join(' · ')}<br>`:''}${proposal.unknown.length} réponse(s) de compatibilité encore attendue(s). Aucun groupe n’est réparti automatiquement avant ces réponses.</div>`:'';
+  const pendingHtml=proposal.pending?`<div class="proposal-pending"><strong>⏳ Répartition en attente</strong>${proposal.rejected?.length?`${proposal.rejected.map(x=>`${label(x.responder)} ne peut pas partir avec ${label(x.owner)} · ${timeLabel(x.time)}`).join(' · ')}<br>`:''}${proposal.unknown.length} réponse(s) de compatibilité encore attendue(s). Aucun groupe n’est réparti automatiquement avant ces réponses.</div>`:'';
   box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>Covoiturage proposé</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${pendingHtml}${proposal.singles.length?`<div class="group-warning">Sans groupe : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${(sameAsValidated||proposal.pending)?'disabled':''}>${proposal.pending?'En attente des réponses':sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
   box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',()=>{
     const current=proposalForDate(ds).groups.map(g=>({...g})); const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-','')); if(!target)return; target.driver=sel.value;
