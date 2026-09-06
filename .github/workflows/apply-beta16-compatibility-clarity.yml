@@ -30,7 +30,7 @@ jobs:
           ! grep -Eq "hour[^\n]*[<>]=?[^\n]*7|7[^\n]*hour" app.js
       - name: Run compatibility tests
         run: |
-          node scripts/test_beta16_logic.js
+          node --input-type=commonjs < scripts/test_beta16_logic.js
       - name: Commit beta.16
         run: |
           git config user.name 'github-actions[bot]'
