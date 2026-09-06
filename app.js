@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.17';
+const APP_VERSION = ENV.version || '4.4.0-beta.18';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -99,6 +99,17 @@ const nextCarpoolISO = () => {
   while(!isWorkingDayISO(iso(d)))d=addDays(d,1); return iso(d);
 };
 const isPastDate = ds => ds < todayISO();
+function tripValidationRule(ds,today,hour,isTest){
+  if(isTest)return true;
+  if(ds<today)return true;
+  if(ds>today)return false;
+  return hour>=7;
+}
+function tripValidationAvailability(ds){
+  const now=appNowParts();
+  const allowed=tripValidationRule(ds,appTodayISO(),now.hour,IS_TEST);
+  return {allowed,message:allowed?'':`Validation possible à partir de ${fmtDate(ds)} à 7h.`};
+}
 const fmtDate = (s, opts={weekday:'long',day:'numeric',month:'long'}) => fromISO(s).toLocaleDateString('fr-FR',opts);
 const nowYear = () => appTodayISO().slice(0,4);
 const currentYM = () => appTodayISO().slice(0,7);
@@ -608,8 +619,19 @@ async function savePlan(date,groups){
 }
 function renderDraftGroups(ds){
   const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';
-  if(!gs.length){box.innerHTML='<div class="empty">Aucun groupe prévu.</div>';$('validateTrips').disabled=true;return;}
-  $('validateTrips').disabled=false;
+  const validationMessage=$('validationMessage');
+  if(!gs.length){
+    box.innerHTML='<div class="empty">Aucun groupe prévu.</div>';
+    $('validateTrips').disabled=true;
+    if(validationMessage){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}
+    return;
+  }
+  const validationGate=tripValidationAvailability(ds);
+  $('validateTrips').disabled=!validationGate.allowed;
+  if(validationMessage){
+    if(!validationGate.allowed){validationMessage.textContent=validationGate.message;validationMessage.dataset.validationGate='1';}
+    else if(validationMessage.dataset.validationGate==='1'){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}
+  }
   gs.forEach((g,idx)=>{
     const sug=driverSuggestion(ds,g.members),equal=sug.candidates.length>1;const div=document.createElement('div');div.className='group-card';
     div.innerHTML=`<div class="row" style="justify-content:space-between"><strong>Groupe ${idx+1} · ${sug.key}</strong><button class="btn danger smallbtn del-group" data-id="${g.id}">Supprimer</button></div>
@@ -888,6 +910,7 @@ function renderQuickProposal(ds){
   const proposal=proposalForDate(ds),gs=proposal.groups,validated=tripGroupsForDate(ds);
   if(!gs.length&&!proposal.pending){box.innerHTML=validatedSummaryHTML(ds)||'<div class="empty compact-empty">Pas encore de groupe proposé.</div>';return;}
   const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);
+  const validationGate=tripValidationAvailability(ds);
   const groupsHtml=gs.length?gs.map((g,i)=>{
     const sug=driverSuggestion(ds,g.members),suggested=sug.candidates.length>1?`Égalité : ${sug.candidates.map(label).join(' / ')}`:`Suggéré : ${label(sug.candidates[0])}`;
     return `<div class="proposal-group-simple ${i?'with-separator':''}">
@@ -901,18 +924,20 @@ function renderQuickProposal(ds){
   const pendingHtml=proposal.pending?`<div class="proposal-pending"><strong>⏳ Répartition en attente</strong>${rejectedHtml}${unknownHtml}<div class="small">La proposition finale sera recalculée après les réponses.</div></div>`:'';
   const proposalTitle=proposal.pending?'Covoiturage provisoire':'Covoiturage proposé';
   const singlesLabel=proposal.pending?'Non placés pour l’instant':'Sans groupe';
-  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>${proposalTitle}</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${pendingHtml}${proposal.singles.length?`<div class="group-warning">${singlesLabel} : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${(sameAsValidated||proposal.pending)?'disabled':''}>${proposal.pending?'En attente des réponses':sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
+  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>${proposalTitle}</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${pendingHtml}${proposal.singles.length?`<div class="group-warning">${singlesLabel} : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${(sameAsValidated||proposal.pending||!validationGate.allowed)?'disabled':''}>${proposal.pending?'En attente des réponses':sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${!validationGate.allowed?`<div class="small muted">${validationGate.message}</div>`:''}${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
   box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',()=>{
     const current=proposalForDate(ds).groups.map(g=>({...g})); const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-','')); if(!target)return; target.driver=sel.value;
     const savePromise=savePlan(ds,current); const state=$('quickSaveState'); if(state)state.textContent='Enregistrement du conducteur…';
     savePromise.then(()=>{const st=$('quickSaveState');if(st)st.textContent='✓ Conducteur enregistré';}).catch(e=>alert(friendlyError(e)));
   }));
-  const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
+  const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
   $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
   const resetBtn=$('quickResetTest');if(resetBtn)resetBtn.addEventListener('click',()=>resetTestTrip(ds));
 }
 
 async function validateGroupsForDate(ds,groups){
+  const validationGate=tripValidationAvailability(ds);
+  if(!validationGate.allowed)throw new Error(validationGate.message);
   if(!groups.length)return;const overlap=groupsHaveOverlap(groups);if(overlap){alert(`${label(overlap)} apparaît dans plusieurs groupes.`);return;}for(const g of groups){
     if(g.members.length<2||!g.members.includes(g.driver)){alert('Un groupe est invalide.');return;}
     if(!isPastDate(ds)){
