@@ -1,0 +1,84 @@
+name: Apply beta.15 fast proposal and notification test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-beta15-fast-proposal-notification-test.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch beta.15
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p=Path(path)
+              text=p.read_text(encoding='utf-8')
+              count=text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected 1 match, found {count}: {old[:80]}')
+              p.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          replace_once('app.js', "const APP_VERSION = ENV.version || '4.4.0-beta.14';", "const APP_VERSION = ENV.version || '4.4.0-beta.15';")
+          replace_once('public-config.js', 'version: "4.4.0-beta.14"', 'version: "4.4.0-beta.15"')
+          replace_once('service-worker.js', "const CACHE='covoiturage-4.4.0-beta.14';", "const CACHE='covoiturage-4.4.0-beta.15';")
+
+          old_deferred = """    const begin=()=>{\n      watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); tripDaysReady=true; });\n      watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); legacyStatusReady=true; });\n    };"""
+          new_deferred = """    const begin=()=>{\n      watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); legacyStatusReady=true; });\n    };"""
+          replace_once('app.js', old_deferred, new_deferred)
+
+          old_watch_end = """    unsubscribers.push(off);\n  };\n  watch('profiles',collection(db,'profiles'),snap=>{ profiles=new Map(snap.docs.map(d=>[d.id,d.data()])); });"""
+          new_watch_end = """    unsubscribers.push(off);\n  };\n  // Les compteurs de rotation sont nécessaires à la proposition : on les charge immédiatement,\n  // sans les rendre bloquants pour l'affichage initial de la page.\n  watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); tripDaysReady=true; });\n  watch('profiles',collection(db,'profiles'),snap=>{ profiles=new Map(snap.docs.map(d=>[d.id,d.data()])); });"""
+          replace_once('app.js', old_watch_end, new_watch_end)
+
+          old_notification = "  const nta=$('notificationTestActions'); if(nta)nta.style.display=(IS_TEST&&profileId===linkedProfileId&&np.notificationsEnabled)?'flex':'none';"
+          new_notification = """  const canTestNotifications=profileId===linkedProfileId&&np.notificationsEnabled;\n  const nta=$('notificationTestActions'); if(nta)nta.style.display=canTestNotifications?'flex':'none';\n  const localTestBtn=$('localNotificationTestBtn'); if(localTestBtn)localTestBtn.style.display=canTestNotifications?'inline-flex':'none';\n  const copyTokenBtn=$('copyFcmTokenBtn'); if(copyTokenBtn)copyTokenBtn.style.display=(IS_TEST&&canTestNotifications)?'inline-flex':'none';"""
+          replace_once('app.js', old_notification, new_notification)
+
+          replace_once('app.js', "await reg.showNotification('Covoiturage · TEST',{body:'Notification de test reçue correctement ✅'", "await reg.showNotification(IS_TEST?'Covoiturage · TEST':'Covoiturage',{body:'Notification de test reçue correctement ✅'")
+
+          app=Path('app.js').read_text(encoding='utf-8')
+          cfg=Path('public-config.js').read_text(encoding='utf-8')
+          sw=Path('service-worker.js').read_text(encoding='utf-8')
+          checks=[
+              ('app version', "4.4.0-beta.15" in app),
+              ('test config version', 'version: "4.4.0-beta.15"' in cfg),
+              ('test environment kept', 'environment: "test"' in cfg and 'team-tool-test-data' in cfg),
+              ('cache version', 'covoiturage-4.4.0-beta.15' in sw),
+              ('one tripDays listener', app.count("watch('tripDays',collection(db,'tripDays')") == 1),
+              ('tripDays immediate', "watch('tripDays',collection(db,'tripDays')" in app.split("watch('profiles',collection(db,'profiles')")[0]),
+              ('legacy remains deferred', "const begin=()=>{\n      watch('legacyStatus'" in app),
+              ('prod-compatible local notification test', "const canTestNotifications=profileId===linkedProfileId&&np.notificationsEnabled;" in app),
+              ('FCM token test-only', "copyTokenBtn.style.display=(IS_TEST&&canTestNotifications)?'inline-flex':'none'" in app),
+              ('no old notification gate', "IS_TEST&&profileId===linkedProfileId&&np.notificationsEnabled)?'flex':'none'" not in app),
+          ]
+          failed=[name for name,ok in checks if not ok]
+          if failed:
+              raise SystemExit('Failed checks: '+', '.join(failed))
+          PY
+          node --check app.js
+          git diff --check
+
+      - name: Commit beta.15
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js public-config.js service-worker.js
+          git commit -m "perf: start rotation data early and restore notification test"
+          git rm .github/workflows/apply-beta15-fast-proposal-notification-test.yml
+          git commit --amend --no-edit
+          git push origin HEAD:main
