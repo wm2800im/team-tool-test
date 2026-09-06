@@ -12,15 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply patch
-        run: python3 scripts/apply_beta16.py
+        run: |
+          python3 scripts/apply_beta16.py
       - name: Validate JavaScript
-        run: node --check app.js
+        run: |
+          node --check app.js
       - name: Validate diff and environment
-        run: git diff --check && grep -q 'environment: "test"' public-config.js && grep -q 'projectId: "team-tool-test-data"' public-config.js && grep -q '4.4.0-beta.16' public-config.js && grep -q "covoiturage-4.4.0-beta.16" service-worker.js
+        run: |
+          git diff --check
+          grep -q 'environment: "test"' public-config.js
+          grep -q 'projectId: "team-tool-test-data"' public-config.js
+          grep -q '4.4.0-beta.16' public-config.js
+          grep -q "covoiturage-4.4.0-beta.16" service-worker.js
       - name: Validate no 7h restriction
-        run: '! grep -q "Validation possible à partir" app.js && ! grep -Eq "hour[^\n]*[<>]=?[^\n]*7|7[^\n]*hour" app.js'
+        run: |
+          ! grep -q "Validation possible à partir" app.js
+          ! grep -Eq "hour[^\n]*[<>]=?[^\n]*7|7[^\n]*hour" app.js
       - name: Run compatibility tests
-        run: node scripts/test_beta16_logic.js
+        run: |
+          node scripts/test_beta16_logic.js
       - name: Commit beta.16
         run: |
           git config user.name 'github-actions[bot]'
