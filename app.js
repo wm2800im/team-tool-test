@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.16';
+const APP_VERSION = ENV.version || '4.4.0-beta.17';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -407,7 +407,7 @@ function collectiveStatusMeta(date,pid,v){
   const base=statusMeta(v);
   if(v?.status!=='present')return base;
   const times=acceptedImperativeTimes(date,pid);
-  return times.length?{label:`Présent · OK ${times.join(' / ')}`,cls:'present'}:base;
+  return times.length?{label:`Présent ${times.join(' / ')}`,cls:'present'}:base;
 }
 
 function renderTomorrow(){
@@ -897,7 +897,7 @@ function renderQuickProposal(ds){
     </div>`;
   }).join(''):'<div class="empty compact-empty">Aucun groupe confirmé pour l’instant.</div>';
   const rejectedHtml=proposal.rejected?.length?proposal.rejected.map(x=>`<div>❌ ${label(x.responder)} ne peut pas partir avec ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join(''):'';
-  const unknownHtml=proposal.unknown?.length?proposal.unknown.map(x=>`<div>⏳ <strong>${label(x.responder)}</strong> doit répondre à l’impératif de <strong>${label(x.owner)}</strong> · ${timeLabel(x.time)}</div>`).join(''):'';
+  const unknownHtml=proposal.unknown?.length?proposal.unknown.map(x=>`<div>⏳ ${label(x.responder)} doit répondre à ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join(''):'';
   const pendingHtml=proposal.pending?`<div class="proposal-pending"><strong>⏳ Répartition en attente</strong>${rejectedHtml}${unknownHtml}<div class="small">La proposition finale sera recalculée après les réponses.</div></div>`:'';
   const proposalTitle=proposal.pending?'Covoiturage provisoire':'Covoiturage proposé';
   const singlesLabel=proposal.pending?'Non placés pour l’instant':'Sans groupe';
