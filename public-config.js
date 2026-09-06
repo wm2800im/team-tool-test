@@ -1,4 +1,5 @@
 // CONFIGURATION TEST — projet Firebase TEST
+// beta.16 — compatibilités impératifs clarifiées
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
