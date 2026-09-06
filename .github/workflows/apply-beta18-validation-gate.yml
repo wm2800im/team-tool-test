@@ -14,98 +14,64 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path('app.js')
           text = p.read_text()
-
           def replace_once(old, new, label):
               global text
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f'{label}: expected 1 occurrence, got {count}')
               text = text.replace(old, new, 1)
-
-          replace_once(
-              "const APP_VERSION = ENV.version || '4.4.0-beta.17';",
-              "const APP_VERSION = ENV.version || '4.4.0-beta.18';",
-              'app version'
-          )
-
-          replace_once(
-              "const isPastDate = ds => ds < todayISO();\nconst fmtDate =",
-              """const isPastDate = ds => ds < todayISO();
-function tripValidationRule(ds,today,hour,isTest){
-  if(isTest)return true;
-  if(ds<today)return true;
-  if(ds>today)return false;
-  return hour>=7;
-}
-function tripValidationAvailability(ds){
-  const now=appNowParts();
-  const allowed=tripValidationRule(ds,appTodayISO(),now.hour,IS_TEST);
-  return {allowed,message:allowed?'':`Validation possible à partir de ${fmtDate(ds)} à 7h.`};
-}
-const fmtDate =""",
-              'validation helper'
-          )
-
-          replace_once(
-              "  const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);\n",
-              "  const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);\n  const validationGate=tripValidationAvailability(ds);\n",
-              'quick validation gate'
-          )
-
-          replace_once(
-              "<button id=\"quickValidate\" class=\"btn\" ${(sameAsValidated||proposal.pending)?'disabled':''}>",
-              "<button id=\"quickValidate\" class=\"btn\" ${(sameAsValidated||proposal.pending||!validationGate.allowed)?'disabled':''}>",
-              'quick button disabled state'
-          )
-
-          replace_once(
-              "</button></div>${IS_TEST&&validated.length?",
-              "</button></div>${!validationGate.allowed?`<div class=\"small muted\">${validationGate.message}</div>`:''}${IS_TEST&&validated.length?",
-              'quick gate message'
-          )
-
-          replace_once(
-              "const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending)validateBtn.addEventListener",
-              "const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener",
-              'quick listener gate'
-          )
-
-          replace_once(
-              """function renderDraftGroups(ds){
-  const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';
-  if(!gs.length){box.innerHTML='<div class=\"empty\">Aucun groupe prévu.</div>';$('validateTrips').disabled=true;return;}
-  $('validateTrips').disabled=false;
-""",
-              """function renderDraftGroups(ds){
-  const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';
-  const validationMessage=$('validationMessage');
-  if(!gs.length){
-    box.innerHTML='<div class=\"empty\">Aucun groupe prévu.</div>';
-    $('validateTrips').disabled=true;
-    if(validationMessage){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}
-    return;
-  }
-  const validationGate=tripValidationAvailability(ds);
-  $('validateTrips').disabled=!validationGate.allowed;
-  if(validationMessage){
-    if(!validationGate.allowed){validationMessage.textContent=validationGate.message;validationMessage.dataset.validationGate='1';}
-    else if(validationMessage.dataset.validationGate==='1'){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}
-  }
-""",
-              'groups validation gate'
-          )
-
-          replace_once(
-              "async function validateGroupsForDate(ds,groups){\n  if(!groups.length)return;",
-              "async function validateGroupsForDate(ds,groups){\n  const validationGate=tripValidationAvailability(ds);\n  if(!validationGate.allowed)throw new Error(validationGate.message);\n  if(!groups.length)return;",
-              'hard validation guard'
-          )
-
+          replace_once("const APP_VERSION = ENV.version || '4.4.0-beta.17';", "const APP_VERSION = ENV.version || '4.4.0-beta.18';", 'app version')
+          old = "const isPastDate = ds => ds < todayISO();\nconst fmtDate ="
+          helper = "\n".join([
+              "const isPastDate = ds => ds < todayISO();",
+              "function tripValidationRule(ds,today,hour,isTest){",
+              "  if(isTest)return true;",
+              "  if(ds<today)return true;",
+              "  if(ds>today)return false;",
+              "  return hour>=7;",
+              "}",
+              "function tripValidationAvailability(ds){",
+              "  const now=appNowParts();",
+              "  const allowed=tripValidationRule(ds,appTodayISO(),now.hour,IS_TEST);",
+              "  return {allowed,message:allowed?'':`Validation possible à partir de ${fmtDate(ds)} à 7h.`};",
+              "}",
+              "const fmtDate ="
+          ])
+          replace_once(old, helper, 'validation helper')
+          replace_once("  const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);\n", "  const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);\n  const validationGate=tripValidationAvailability(ds);\n", 'quick validation gate')
+          replace_once("<button id=\"quickValidate\" class=\"btn\" ${(sameAsValidated||proposal.pending)?'disabled':''}>", "<button id=\"quickValidate\" class=\"btn\" ${(sameAsValidated||proposal.pending||!validationGate.allowed)?'disabled':''}>", 'quick button disabled state')
+          replace_once("</button></div>${IS_TEST&&validated.length?", "</button></div>${!validationGate.allowed?`<div class=\"small muted\">${validationGate.message}</div>`:''}${IS_TEST&&validated.length?", 'quick gate message')
+          replace_once("const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending)validateBtn.addEventListener", "const validateBtn=$('quickValidate'); if(validateBtn&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener", 'quick listener gate')
+          old_draft = "\n".join([
+              "function renderDraftGroups(ds){",
+              "  const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';",
+              "  if(!gs.length){box.innerHTML='<div class=\"empty\">Aucun groupe prévu.</div>';$('validateTrips').disabled=true;return;}",
+              "  $('validateTrips').disabled=false;",
+              ""
+          ])
+          new_draft = "\n".join([
+              "function renderDraftGroups(ds){",
+              "  const box=$('draftGroups'),gs=currentPlan(ds);box.innerHTML='';",
+              "  const validationMessage=$('validationMessage');",
+              "  if(!gs.length){",
+              "    box.innerHTML='<div class=\"empty\">Aucun groupe prévu.</div>';",
+              "    $('validateTrips').disabled=true;",
+              "    if(validationMessage){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}",
+              "    return;",
+              "  }",
+              "  const validationGate=tripValidationAvailability(ds);",
+              "  $('validateTrips').disabled=!validationGate.allowed;",
+              "  if(validationMessage){",
+              "    if(!validationGate.allowed){validationMessage.textContent=validationGate.message;validationMessage.dataset.validationGate='1';}",
+              "    else if(validationMessage.dataset.validationGate==='1'){validationMessage.textContent='';delete validationMessage.dataset.validationGate;}",
+              "  }",
+              ""
+          ])
+          replace_once(old_draft, new_draft, 'groups validation gate')
+          replace_once("async function validateGroupsForDate(ds,groups){\n  if(!groups.length)return;", "async function validateGroupsForDate(ds,groups){\n  const validationGate=tripValidationAvailability(ds);\n  if(!validationGate.allowed)throw new Error(validationGate.message);\n  if(!groups.length)return;", 'hard validation guard')
           p.write_text(text)
-
           cfg = Path('public-config.js')
           c = cfg.read_text()
           if c.count('version: "4.4.0-beta.17"') != 1:
@@ -113,7 +79,6 @@ const fmtDate =""",
           c = c.replace('version: "4.4.0-beta.17"', 'version: "4.4.0-beta.18"', 1)
           c = c.replace('// beta.16 — compatibilités impératifs clarifiées', '// beta.18 — validation PROD à partir de 7h, TEST libre')
           cfg.write_text(c)
-
           sw = Path('service-worker.js')
           s = sw.read_text()
           if s.count("const CACHE='covoiturage-4.4.0-beta.17';") != 1:
@@ -121,7 +86,6 @@ const fmtDate =""",
           s = s.replace("const CACHE='covoiturage-4.4.0-beta.17';", "const CACHE='covoiturage-4.4.0-beta.18';", 1)
           sw.write_text(s)
           PY
-
       - name: Validate beta.18
         run: |
           node --check app.js
@@ -156,7 +120,6 @@ const fmtDate =""",
           console.log('validation rule scenarios OK');
           NODE
           node /tmp/test-validation-rule.cjs
-
       - name: Commit beta.18
         run: |
           git config user.name 'github-actions[bot]'
