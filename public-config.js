@@ -28,8 +28,8 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
       .help-shell > summary{list-style:none}
       .help-summary-left{display:flex;align-items:center;gap:10px;min-width:0}
       .help-summary-icon{width:34px;height:34px;border-radius:10px;background:linear-gradient(145deg,#e9f2fb,#dceafb);display:grid;place-items:center;font-size:18px;flex:0 0 auto}
-      .help-summary-text{display:flex;flex-direction:column;line-height:1.15}
-      .help-summary-text small{font-size:11px;color:var(--muted);font-weight:600;margin-top:3px}
+      .help-summary-text{display:flex;flex-direction:column;font:inherit;line-height:1.3}
+      .help-summary-text strong{font:inherit;font-weight:800;letter-spacing:normal}.help-summary-text small{font-size:11px;color:var(--muted);font-weight:600;margin-top:3px}
       .help-summary-arrow{font-size:22px;color:var(--muted);transition:transform .18s ease}
       .help-shell[open] .help-summary-arrow{transform:rotate(90deg)}
       .help-panel{margin-top:12px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
@@ -87,7 +87,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         <div class="help-flow">
           <div class="help-step"><div class="help-step-n">1</div><div><strong>Je renseigne ma journée</strong><span>Présent, absent, seul ou avec un impératif horaire.</span></div></div>
           <div class="help-step"><div class="help-step-n">2</div><div><strong>L’app propose les groupes</strong><span>Elle croise les disponibilités, les contraintes et l’historique.</span></div></div>
-          <div class="help-step"><div class="help-step-n">3</div><div><strong>On valide le trajet réel</strong><span>Le vrai conducteur est enregistré et les compteurs sont mis à jour.</span></div></div>
+          <div class="help-step"><div class="help-step-n">3</div><div><strong>On valide le trajet réel</strong><span>Chaque groupe peut être validé séparément. Le vrai conducteur est enregistré et les compteurs sont mis à jour.</span></div></div>
         </div>
 
         <div class="help-section">

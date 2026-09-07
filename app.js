@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.18';
+const APP_VERSION = ENV.version || '4.4.0-beta.21';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -636,7 +636,7 @@ function renderDraftGroups(ds){
   }
   gs.forEach((g,idx)=>{
     const sug=driverSuggestion(ds,g.members),equal=sug.candidates.length>1,vg=validatedGroupForPlan(ds,g),done=isPlannedGroupValidated(ds,g);
-    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';
+    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';div.dataset.groupId=g.id;
     div.innerHTML=`<div class="row" style="justify-content:space-between"><strong>Groupe ${idx+1} · ${sug.key}</strong><button class="btn danger smallbtn del-group" data-id="${g.id}">Supprimer</button></div>
       <div class="group-members">${canonical(g.members).map(p=>`<span class="member-chip">${label(p)}</span>`).join('')}</div>
       <div class="suggestion ${equal?'tie':''}">${equal?`⚖️ Égalité : ${sug.candidates.map(label).join(' / ')}`:`🚗 Conducteur conseillé : ${label(sug.candidates[0])}`}<div class="small">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div></div>
@@ -944,6 +944,25 @@ function validatedSummaryHTML(ds){
   const lines=groups.map((g,i)=>{const members=canonical(g.members||g.participants||[]),driver=g.driver||g.driverId,passengers=members.filter(p=>p!==driver);return `<div class="validated-line"><span>${groups.length>1?`<strong>Groupe ${i+1} · </strong>`:''}🚗 <strong>${label(driver)}</strong>${passengers.length?` · Passagers : ${passengers.map(label).join(', ')}`:''}</span></div>`;}).join('');
   return `<div class="validated-summary"><div class="validated-title">${title}</div>${lines}</div>`;
 }
+async function openGroupEditor(ds,groupId){
+  let proposal=proposalForDate(ds);
+  if(proposal.groups.length&&!proposal.saved){
+    await savePlan(ds,proposal.groups);
+    proposal=proposalForDate(ds);
+  }
+  const target=proposal.groups.find(g=>g.id===groupId)||proposal.groups.find(g=>groupCode(g.members)===String(groupId||'').replace('auto-',''));
+  $('groupDate').value=ds;
+  openPage('groups');
+  renderGroups();
+  const id=target?.id||groupId;
+  setTimeout(()=>{
+    const card=[...document.querySelectorAll('#draftGroups .group-card')].find(el=>el.dataset.groupId===id);
+    if(!card)return;
+    card.classList.add('group-card-focus');
+    card.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(()=>card.classList.remove('group-card-focus'),2200);
+  },80);
+}
 function renderQuickProposal(ds){
   const box=$('quickProposal'); if(!box)return;
   if(!tripDaysReady){box.innerHTML='<div class="empty compact-empty">Calcul de la proposition…</div>';return;}
@@ -957,7 +976,7 @@ function renderQuickProposal(ds){
       <div class="proposal-main-line"><strong>${gs.length>1?`Groupe ${i+1} · `:''}${g.members.map(label).join(' · ')}</strong><span class="proposal-suggested">${suggested}</span></div>
       <div class="proposal-counter-line">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div>
       <div class="proposal-driver-row"><label>Conducteur réel</label><select class="quick-driver input" data-id="${g.id}" ${proposal.pending&&!proposal.saved?'disabled':''}>${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div>
-      ${gs.length>1?`<div style="margin-top:8px"><button class="btn smallbtn quick-validate-one" data-id="${g.id}" ${(done||proposal.pending||!validationGate.allowed)?'disabled':''}>${action}</button></div>`:''}
+      ${gs.length>1?`<div class="quick-group-actions"><button class="btn smallbtn quick-validate-one" data-id="${g.id}" ${(done||proposal.pending||!validationGate.allowed)?'disabled':''}>${action}</button><button class="btn secondary smallbtn quick-modify-one" data-id="${g.id}" type="button">Modifier ce groupe</button></div>`:''}
     </div>`;
   }).join(''):'<div class="empty compact-empty">Aucun groupe confirmé pour l’instant.</div>';
   const rejectedHtml=proposal.rejected?.length?proposal.rejected.map(x=>`<div>❌ ${label(x.responder)} ne peut pas partir avec ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join(''):'';
@@ -972,8 +991,9 @@ function renderQuickProposal(ds){
     savePromise.then(()=>{const st=$('quickSaveState');if(st)st.textContent='✓ Conducteur enregistré';}).catch(e=>alert(friendlyError(e)));
   }));
   box.querySelectorAll('.quick-validate-one').forEach(btn=>btn.addEventListener('click',async()=>{const current=proposalForDate(ds).groups.map(g=>({...g}));const target=current.find(g=>g.id===btn.dataset.id)||current.find(g=>groupCode(g.members)===btn.dataset.id.replace('auto-',''));if(!target)return;btn.disabled=true;btn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation de ce groupe…';try{await validateSingleGroupForDate(ds,target,current);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}}));
+  box.querySelectorAll('.quick-modify-one').forEach(btn=>btn.addEventListener('click',async()=>{btn.disabled=true;const state=$('quickSaveState');if(state)state.textContent='Ouverture de ce groupe…';try{await openGroupEditor(ds,btn.dataset.id);}catch(e){btn.disabled=false;alert(friendlyError(e));}}));
   const validateBtn=$('quickValidate');if(validateBtn&&gs.length>1)validateBtn.style.display='none';if(validateBtn&&gs.length===1&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
-  $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
+  const modifyBtn=$('quickModify');if(modifyBtn&&gs.length>1)modifyBtn.style.display='none';else if(modifyBtn)modifyBtn.addEventListener('click',async()=>{try{await openGroupEditor(ds,gs[0]?.id);}catch(e){alert(friendlyError(e));}});
   const resetBtn=$('quickResetTest');if(resetBtn)resetBtn.addEventListener('click',()=>resetTestTrip(ds));
 }
 
