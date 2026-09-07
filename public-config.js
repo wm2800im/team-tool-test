@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// beta.21 — validation et modification séparées des groupes en TEST
+// beta.22 — édition ciblée + validation séparée des groupes en TEST
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.4.0-beta.21",
+  version: "4.4.0-beta.22",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
@@ -87,7 +87,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         <div class="help-flow">
           <div class="help-step"><div class="help-step-n">1</div><div><strong>Je renseigne ma journée</strong><span>Présent, absent, seul ou avec un impératif horaire.</span></div></div>
           <div class="help-step"><div class="help-step-n">2</div><div><strong>L’app propose les groupes</strong><span>Elle croise les disponibilités, les contraintes et l’historique.</span></div></div>
-          <div class="help-step"><div class="help-step-n">3</div><div><strong>On valide le trajet réel</strong><span>Chaque groupe peut être validé séparément. Le vrai conducteur est enregistré et les compteurs sont mis à jour.</span></div></div>
+          <div class="help-step"><div class="help-step-n">3</div><div><strong>On valide le trajet réel</strong><span>Chaque groupe peut être validé ou modifié séparément. Le vrai conducteur est enregistré et les compteurs sont mis à jour.</span></div></div>
         </div>
 
         <div class="help-section">

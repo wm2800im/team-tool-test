@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.21';
+const APP_VERSION = ENV.version || '4.4.0-beta.22';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -48,6 +48,8 @@ let tripDaysReady = false;
 let legacyStatusReady = false;
 let appUiInitialized = false;
 let accessUiInitialized = false;
+let editingGroupId = null;
+let editingGroupDate = null;
 
 const $ = id => document.getElementById(id);
 const qsa = sel => [...document.querySelectorAll(sel)];
@@ -567,17 +569,22 @@ function renderGroups(){
   }
   if($('addGroup'))$('addGroup').disabled=false;
   const ds=$('groupDate').value||nextCarpoolISO();
-  const past=isPastDate(ds); const groups=currentPlan(ds); const assigned=new Set(groups.flatMap(g=>g.members));
+  const past=isPastDate(ds); const groups=currentPlan(ds);
+  const editing=(editingGroupDate===ds)?groups.find(g=>g.id===editingGroupId):null;
+  if(editingGroupDate===ds&&editingGroupId&&!editing){editingGroupId=null;editingGroupDate=null;}
+  const assigned=new Set(groups.filter(g=>!editing||g.id!==editing.id).flatMap(g=>g.members));
   const box=$('availablePeople');box.innerHTML='';
   PEOPLE.forEach(p=>{
-    const v=getAvail(ds,p),m=statusMeta(v); const can=!assigned.has(p) && (past || isAvailable(v));
+    const v=getAvail(ds,p),m=statusMeta(v),selectedForEdit=!!editing?.members?.includes(p);
+    const can=!assigned.has(p) && (selectedForEdit || past || isAvailable(v));
     const row=document.createElement('label');row.className='person-row';
-    const info=assigned.has(p)?'Déjà dans un groupe':(past?`${m.label} · saisie a posteriori`:m.label);
-    const checked=assigned.has(p)||can,disabled=assigned.has(p)||!can;
+    const info=assigned.has(p)?'Déjà dans un autre groupe':selectedForEdit?'Dans le groupe à modifier':(past?`${m.label} · saisie a posteriori`:m.label);
+    const checked=assigned.has(p)||selectedForEdit||(!editing&&can),disabled=assigned.has(p)||!can;
     row.innerHTML=`<input type="checkbox" class="group-check" value="${p}" ${checked?'checked':''} ${disabled?'disabled':''}><div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong><div class="small muted">${info}</div></div>`;
     box.appendChild(row);
   });
   box.querySelectorAll('.group-check').forEach(c=>c.addEventListener('change',()=>renderGroupCompatibilityMessage(ds)));
+  if($('addGroup'))$('addGroup').textContent=editing?'Enregistrer les modifications':'Ajouter le groupe sélectionné';
   renderGroupCompatibilityMessage(ds); renderDraftGroups(ds); renderValidatedInfo(ds);
 }
 function renderGroupCompatibilityMessage(ds){
@@ -607,7 +614,16 @@ async function addSelectedGroup(){
   const ds=$('groupDate').value;const members=qsa('.group-check:checked:not(:disabled)').map(x=>x.value);
   if(members.length<2||members.length>5){alert('Sélectionne entre 2 et 5 personnes.');return;}
   const bad=isPastDate(ds)?[]:explicitIncompatibilities(ds,members);if(bad.length){alert('Ce groupe contient une incompatibilité horaire explicite.');return;}
-  const sug=driverSuggestion(ds,members);const groups=[...currentPlan(ds),{id:crypto.randomUUID(),members:canonical(members),driver:sug.candidates[0]||canonical(members)[0]}];
+  const sug=driverSuggestion(ds,members),current=currentPlan(ds),editing=(editingGroupDate===ds)?current.find(g=>g.id===editingGroupId):null;
+  if(editing){
+    const driver=members.includes(editing.driver)?editing.driver:(sug.candidates[0]||canonical(members)[0]);
+    const groups=current.map(g=>g.id===editing.id?{...g,members:canonical(members),driver}:g);
+    const overlap=groupsHaveOverlap(groups);if(overlap){alert(`${label(overlap)} apparaît dans plusieurs groupes.`);return;}
+    editingGroupId=null;editingGroupDate=null;
+    await savePlan(ds,groups);toast('✓ Groupe modifié.');
+    return;
+  }
+  const groups=[...current,{id:crypto.randomUUID(),members:canonical(members),driver:sug.candidates[0]||canonical(members)[0]}];
   await savePlan(ds,groups);toast('Groupe ajouté.');
 }
 async function savePlan(date,groups){
@@ -636,7 +652,7 @@ function renderDraftGroups(ds){
   }
   gs.forEach((g,idx)=>{
     const sug=driverSuggestion(ds,g.members),equal=sug.candidates.length>1,vg=validatedGroupForPlan(ds,g),done=isPlannedGroupValidated(ds,g);
-    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';div.dataset.groupId=g.id;
+    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';div.dataset.groupId=g.id;if(editingGroupDate===ds&&editingGroupId===g.id)div.classList.add('group-card-focus');
     div.innerHTML=`<div class="row" style="justify-content:space-between"><strong>Groupe ${idx+1} · ${sug.key}</strong><button class="btn danger smallbtn del-group" data-id="${g.id}">Supprimer</button></div>
       <div class="group-members">${canonical(g.members).map(p=>`<span class="member-chip">${label(p)}</span>`).join('')}</div>
       <div class="suggestion ${equal?'tie':''}">${equal?`⚖️ Égalité : ${sug.candidates.map(label).join(' / ')}`:`🚗 Conducteur conseillé : ${label(sug.candidates[0])}`}<div class="small">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div></div>
@@ -644,7 +660,7 @@ function renderDraftGroups(ds){
       ${multi?`<div class="row" style="margin-top:8px"><button class="btn smallbtn validate-one-group" data-id="${g.id}" ${(done||!validationGate.allowed)?'disabled':''}>${action}</button></div>`:''}`;
     box.appendChild(div);
   });
-  box.querySelectorAll('.del-group').forEach(b=>b.addEventListener('click',async()=>{await savePlan(ds,currentPlan(ds).filter(g=>g.id!==b.dataset.id));toast('Groupe supprimé.');}));
+  box.querySelectorAll('.del-group').forEach(b=>b.addEventListener('click',async()=>{if(editingGroupDate===ds&&editingGroupId===b.dataset.id){editingGroupId=null;editingGroupDate=null;}await savePlan(ds,currentPlan(ds).filter(g=>g.id!==b.dataset.id));toast('Groupe supprimé.');}));
   box.querySelectorAll('.driver-select').forEach(s=>s.addEventListener('change',async()=>{const gs=currentPlan(ds).map(g=>g.id===s.dataset.id?{...g,driver:s.value}:g);await savePlan(ds,gs);toast('Conducteur modifié.');}));
   box.querySelectorAll('.validate-one-group').forEach(b=>b.addEventListener('click',async()=>{const planned=currentPlan(ds),g=planned.find(x=>x.id===b.dataset.id);if(!g)return;b.disabled=true;b.textContent='Enregistrement…';try{await validateSingleGroupForDate(ds,g,planned);}catch(e){alert(friendlyError(e));renderGroups();}}));
 }
@@ -951,6 +967,7 @@ async function openGroupEditor(ds,groupId){
     proposal=proposalForDate(ds);
   }
   const target=proposal.groups.find(g=>g.id===groupId)||proposal.groups.find(g=>groupCode(g.members)===String(groupId||'').replace('auto-',''));
+  editingGroupId=target?.id||groupId;editingGroupDate=ds;
   $('groupDate').value=ds;
   openPage('groups');
   renderGroups();
