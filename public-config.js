@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// beta.19 — validation séparée des groupes multiples en TEST
+// beta.20 — groupes séparés + compatibilité service worker notifications TEST
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.4.0-beta.19",
+  version: "4.4.0-beta.20",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
@@ -16,7 +16,7 @@ globalThis.COVOIT_ENV = {
 };
 
 // Aide visuelle réservée à la plateforme TEST.
-document.addEventListener('DOMContentLoaded', () => {
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
   const host = document.querySelector('.help-menu-block');
   if (!host) return;
 
