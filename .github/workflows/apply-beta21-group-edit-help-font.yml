@@ -1,0 +1,111 @@
+name: Apply beta21 group edit buttons
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch TEST app
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # app.js
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+          if 'quick-modify-one' not in s:
+              old="""    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';
+"""
+              new="""    const action=done?'✓ Groupe validé':vg?'↻ Mettre à jour ce groupe':'✓ Valider ce groupe';const div=document.createElement('div');div.className='group-card';div.dataset.groupId=g.id;
+"""
+              assert old in s, 'draft group card marker not found'
+              s=s.replace(old,new,1)
+
+              marker="""function renderQuickProposal(ds){
+"""
+              helper="""async function openGroupEditor(ds,groupId){
+  let proposal=proposalForDate(ds);
+  if(proposal.groups.length&&!proposal.saved){
+    await savePlan(ds,proposal.groups);
+    proposal=proposalForDate(ds);
+  }
+  const target=proposal.groups.find(g=>g.id===groupId)||proposal.groups.find(g=>groupCode(g.members)===String(groupId||'').replace('auto-',''));
+  $('groupDate').value=ds;
+  openPage('groups');
+  renderGroups();
+  const id=target?.id||groupId;
+  setTimeout(()=>{
+    const card=[...document.querySelectorAll('#draftGroups .group-card')].find(el=>el.dataset.groupId===id);
+    if(!card)return;
+    card.classList.add('group-card-focus');
+    card.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(()=>card.classList.remove('group-card-focus'),2200);
+  },80);
+}
+function renderQuickProposal(ds){
+"""
+              assert marker in s, 'renderQuickProposal marker not found'
+              s=s.replace(marker,helper,1)
+
+              old="""      ${gs.length>1?`<div style=\"margin-top:8px\"><button class=\"btn smallbtn quick-validate-one\" data-id=\"${g.id}\" ${(done||proposal.pending||!validationGate.allowed)?'disabled':''}>${action}</button></div>`:''}
+"""
+              new="""      ${gs.length>1?`<div class=\"quick-group-actions\"><button class=\"btn smallbtn quick-validate-one\" data-id=\"${g.id}\" ${(done||proposal.pending||!validationGate.allowed)?'disabled':''}>${action}</button><button class=\"btn secondary smallbtn quick-modify-one\" data-id=\"${g.id}\" type=\"button\">Modifier ce groupe</button></div>`:''}
+"""
+              assert old in s, 'quick per-group action marker not found'
+              s=s.replace(old,new,1)
+
+              old="""  box.querySelectorAll('.quick-validate-one').forEach(btn=>btn.addEventListener('click',async()=>{const current=proposalForDate(ds).groups.map(g=>({...g}));const target=current.find(g=>g.id===btn.dataset.id)||current.find(g=>groupCode(g.members)===btn.dataset.id.replace('auto-',''));if(!target)return;btn.disabled=true;btn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation de ce groupe…';try{await validateSingleGroupForDate(ds,target,current);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}}));
+  const validateBtn=$('quickValidate');if(validateBtn&&gs.length>1)validateBtn.style.display='none';if(validateBtn&&gs.length===1&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
+  $('quickModify').addEventListener('click',()=>{$('groupDate').value=ds;openPage('groups');renderGroups();});
+"""
+              new="""  box.querySelectorAll('.quick-validate-one').forEach(btn=>btn.addEventListener('click',async()=>{const current=proposalForDate(ds).groups.map(g=>({...g}));const target=current.find(g=>g.id===btn.dataset.id)||current.find(g=>groupCode(g.members)===btn.dataset.id.replace('auto-',''));if(!target)return;btn.disabled=true;btn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation de ce groupe…';try{await validateSingleGroupForDate(ds,target,current);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}}));
+  box.querySelectorAll('.quick-modify-one').forEach(btn=>btn.addEventListener('click',async()=>{btn.disabled=true;const state=$('quickSaveState');if(state)state.textContent='Ouverture de ce groupe…';try{await openGroupEditor(ds,btn.dataset.id);}catch(e){btn.disabled=false;alert(friendlyError(e));}}));
+  const validateBtn=$('quickValidate');if(validateBtn&&gs.length>1)validateBtn.style.display='none';if(validateBtn&&gs.length===1&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
+  const modifyBtn=$('quickModify');if(modifyBtn&&gs.length>1)modifyBtn.style.display='none';else if(modifyBtn)modifyBtn.addEventListener('click',async()=>{try{await openGroupEditor(ds,gs[0]?.id);}catch(e){alert(friendlyError(e));}});
+"""
+              assert old in s, 'quick listeners marker not found'
+              s=s.replace(old,new,1)
+
+          s=s.replace("const APP_VERSION = ENV.version || '4.4.0-beta.18';","const APP_VERSION = ENV.version || '4.4.0-beta.21';",1)
+          p.write_text(s,encoding='utf-8')
+
+          # styles.css
+          p=Path('styles.css')
+          st=p.read_text(encoding='utf-8')
+          if 'group-card-focus' not in st:
+              st += """
+
+/* 4.4.0-beta.21 — modification indépendante des groupes */
+.quick-group-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.quick-group-actions .btn{flex:1 1 145px}
+.group-card-focus{outline:3px solid var(--brand);outline-offset:2px;box-shadow:0 0 0 5px color-mix(in srgb,var(--brand) 12%,transparent)}
+@media(max-width:620px){.quick-group-actions{gap:6px}.quick-group-actions .btn{font-size:11.5px;min-height:38px;padding:8px 7px}}
+"""
+          p.write_text(st,encoding='utf-8')
+
+          # public-config.js: version + typographie de l'aide + texte cohérent
+          p=Path('public-config.js')
+          c=p.read_text(encoding='utf-8')
+          c=c.replace('// beta.19 — validation séparée des groupes multiples en TEST','// beta.21 — validation et modification séparées des groupes en TEST',1)
+          c=c.replace('version: "4.4.0-beta.19"','version: "4.4.0-beta.21"',1)
+          c=c.replace('.help-summary-text{display:flex;flex-direction:column;line-height:1.15}', '.help-summary-text{display:flex;flex-direction:column;font:inherit;line-height:1.3}',1)
+          if '.help-summary-text strong{font:inherit' not in c:
+              c=c.replace('.help-summary-text small{font-size:11px;color:var(--muted);font-weight:600;margin-top:3px}', '.help-summary-text strong{font:inherit;font-weight:800;letter-spacing:normal}.help-summary-text small{font-size:11px;color:var(--muted);font-weight:600;margin-top:3px}',1)
+          c=c.replace('Le vrai conducteur est enregistré et les compteurs sont mis à jour.', 'Chaque groupe peut être validé séparément. Le vrai conducteur est enregistré et les compteurs sont mis à jour.',1)
+          p.write_text(c,encoding='utf-8')
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js styles.css public-config.js
+          git commit -m "feat(test): add per-group edit buttons and align help typography"
+          git push
