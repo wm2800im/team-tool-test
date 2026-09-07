@@ -1,0 +1,34 @@
+name: Fix TEST FCM config guard
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard browser-only help code
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('public-config.js')
+          s=p.read_text(encoding='utf-8')
+          if "if (typeof document !== 'undefined') document.addEventListener" not in s:
+              s=s.replace("document.addEventListener('DOMContentLoaded', () => {","if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {",1)
+          s=s.replace('// beta.19 — validation séparée des groupes multiples en TEST','// beta.20 — groupes séparés + compatibilité service worker notifications TEST')
+          s=s.replace('version: "4.4.0-beta.19"','version: "4.4.0-beta.20"')
+          p.write_text(s,encoding='utf-8')
+          Path('CHANGEMENTS_4.4.0-beta.20.md').write_text('''# 4.4.0-beta.20\n\n- Conserve la validation indépendante des groupes multiples de beta.19.\n- Corrige le chargement de public-config.js dans le service worker Firebase TEST : l’aide visuelle n’est exécutée que dans une page navigateur.\n''',encoding='utf-8')
+          PY
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public-config.js CHANGEMENTS_4.4.0-beta.20.md
+          git commit -m "fix(test): keep help code out of FCM service worker" || exit 0
+          git push
