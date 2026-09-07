@@ -9,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.4.0-beta.22';
+const APP_VERSION = ENV.version || '4.6.0-beta.1';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -50,6 +50,10 @@ let appUiInitialized = false;
 let accessUiInitialized = false;
 let editingGroupId = null;
 let editingGroupDate = null;
+let delleTrips = new Map();
+let delleTripsReady = false;
+let delleTripsError = '';
+let delleUnsubscribe = null;
 
 const $ = id => document.getElementById(id);
 const qsa = sel => [...document.querySelectorAll(sel)];
@@ -171,6 +175,7 @@ function launchLinkedApp(){
   initStaticUI();
   initSettingsUI();
   subscribeSharedData();
+  subscribeDellePrivate();
 }
 
 function initAccessUI(){
@@ -431,7 +436,7 @@ function renderTomorrow(){
   const mineSummary=$('myTomorrowSummary'); if(mineSummary)mineSummary.textContent='';
   const box=$('collectiveTomorrow');box.innerHTML='';let answered=0;
   PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=collectiveStatusMeta(ds,p,v);const row=document.createElement('div');row.className='person-row compact-person';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
-  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderUnvalidatedTripAlert();
+  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderDellePrivate(ds); renderUnvalidatedTripAlert();
 }
 function renderTimeCompatibility(ds,mine){
   const box=$('timeCompatibilityBox');
@@ -980,6 +985,104 @@ async function openGroupEditor(ds,groupId){
     setTimeout(()=>card.classList.remove('group-card-focus'),2200);
   },80);
 }
+// DELLE_PRIVATE_START
+const DELLE_PAIR=['igor','ludo'];
+function isDelleViewer(){return DELLE_PAIR.includes(profileId);}
+function isDelleLinkedUser(){return DELLE_PAIR.includes(linkedProfileId);}
+function subscribeDellePrivate(){
+  if(!isDelleLinkedUser()||delleUnsubscribe)return;
+  delleTripsReady=false;delleTripsError='';
+  delleUnsubscribe=onSnapshot(collection(db,'delleTrips'),snap=>{
+    delleTrips=new Map(snap.docs.map(d=>[d.id,{date:d.id,...d.data()}]));
+    delleTripsReady=true;delleTripsError='';
+    if(activePage('tomorrow'))renderDellePrivate(nextCarpoolISO());
+  },err=>{
+    console.warn('Delle private',err);delleTripsReady=true;delleTripsError=friendlyError(err);
+    if(activePage('tomorrow'))renderDellePrivate(nextCarpoolISO());
+  });
+  unsubscribers.push(()=>{if(delleUnsubscribe){delleUnsubscribe();delleUnsubscribe=null;}});
+}
+function delleRotation(ds){
+  const rows=[...delleTrips.entries()].map(([date,data])=>({date,...data})).filter(x=>x.date<ds&&DELLE_PAIR.includes(x.driver)).sort((a,b)=>a.date.localeCompare(b.date));
+  const counts={igor:0,ludo:0};rows.forEach(x=>counts[x.driver]++);
+  let suggested='igor';
+  if(counts.igor<counts.ludo)suggested='igor';
+  else if(counts.ludo<counts.igor)suggested='ludo';
+  else if(rows.length)suggested=rows[rows.length-1].driver==='igor'?'ludo':'igor';
+  return{counts,suggested,last:rows.length?rows[rows.length-1]:null};
+}
+function delleMainState(ds){
+  const proposal=proposalForDate(ds),groups=proposal.groups||[];
+  if(proposal.pending)return{kind:'pending',proposal};
+  const ig=groups.find(g=>(g.members||g.participants||[]).includes('igor'));
+  const lu=groups.find(g=>(g.members||g.participants||[]).includes('ludo'));
+  if(!ig||!lu)return{kind:'pending',proposal};
+  if(groupMembersKey(ig)!==groupMembersKey(lu))return{kind:'different',proposal,igorGroup:ig,ludoGroup:lu};
+  const validated=validatedGroupForPlan(ds,ig);
+  const plannedDriver=ig.driver||ig.driverId;
+  const validatedDriver=validated?.driver||validated?.driverId||null;
+  const mainValidated=!!validated&&validatedDriver===plannedDriver;
+  return{kind:'same',proposal,group:ig,validated,mainValidated,mainDriver:validatedDriver||plannedDriver};
+}
+function dellePrivateHeader(){return `<div class="delle-head"><div><span class="delle-lock">🔒 Privé Igor · Ludo</span><h3>🚗 Jusqu’à Delle</h3></div><span class="delle-place">Point de ralliement</span></div>`;}
+function renderDellePrivate(ds){
+  const host=$('dellePrivate');if(!host)return;
+  host.style.display='none';host.innerHTML='';
+  if(!isDelleViewer())return;
+  const both=isAvailable(getAvail(ds,'igor'))&&isAvailable(getAvail(ds,'ludo'));
+  if(!both)return;
+  host.style.display='block';
+  if(delleTripsError){host.innerHTML=`<div class="delle-card">${dellePrivateHeader()}<div class="notice danger small">Données Delle indisponibles : ${delleTripsError}</div></div>`;return;}
+  if(!delleTripsReady){host.innerHTML=`<div class="delle-card">${dellePrivateHeader()}<div class="small muted">Chargement de la rotation Delle…</div></div>`;return;}
+  const state=delleMainState(ds),existing=delleTrips.get(ds),rotation=delleRotation(ds);
+  if(state.kind==='pending'){
+    host.innerHTML=`<div class="delle-card">${dellePrivateHeader()}<div class="delle-message">⏳ La rotation Delle sera proposée dès que la composition des groupes sera définitive.</div>${existing?`<div class="delle-validated">✓ Trajet Delle déjà enregistré : <strong>${label(existing.driver)}</strong></div>`:''}</div>`;
+    return;
+  }
+  if(state.kind==='different'){
+    host.innerHTML=`<div class="delle-card">${dellePrivateHeader()}<div class="delle-message no-trip">↔️ Igor et Ludo sont dans des groupes différents : <strong>pas de trajet commun jusqu’à Delle.</strong></div>${existing?`<div class="delle-warning">Un trajet Delle avait déjà été enregistré pour cette date. Il faut l’annuler pour ne pas fausser la rotation.</div><button id="deleteDelleTrip" class="btn danger smallbtn" type="button">Annuler le trajet Delle enregistré</button>`:''}</div>`;
+    $('deleteDelleTrip')?.addEventListener('click',()=>deleteDelleTrip(ds));
+    return;
+  }
+  const mainDriver=state.mainDriver,forced=DELLE_PAIR.includes(mainDriver)?mainDriver:null;
+  const selected=forced||(existing?.driver&&DELLE_PAIR.includes(existing.driver)?existing.driver:rotation.suggested);
+  const forcedText=forced?`Priorité au groupe principal : <strong>${label(forced)}</strong> conduit le groupe, donc sa voiture doit arriver à Delle.`:`Aucun de vous deux ne conduit le groupe principal : la rotation Delle décide.`;
+  const ready=state.mainValidated;
+  const mismatch=!!(existing&&forced&&existing.driver!==forced);
+  host.innerHTML=`<div class="delle-card">${dellePrivateHeader()}
+    <div class="delle-main-rule">${forcedText}</div>
+    <div class="delle-counters"><span>Rotation Delle</span><strong>Igor ${rotation.counts.igor}</strong><strong>Ludo ${rotation.counts.ludo}</strong></div>
+    <div class="delle-suggest">${forced?'🚘 Conducteur imposé par le groupe':'🔁 Tour conseillé'} : <strong>${label(forced||rotation.suggested)}</strong></div>
+    <div class="delle-driver-row"><label>Conducteur réel jusqu’à Delle</label><select id="delleDriver" class="input" ${(forced||!ready)?'disabled':''}><option value="igor" ${selected==='igor'?'selected':''}>Igor</option><option value="ludo" ${selected==='ludo'?'selected':''}>Ludo</option></select></div>
+    ${!ready?'<div class="small muted">Valide d’abord le groupe principal. La priorité du trajet principal est ainsi garantie.</div>':''}
+    ${mismatch?`<div class="delle-warning">Le trajet Delle enregistré ne correspond plus au conducteur du groupe principal. Mets-le à jour.</div>`:''}
+    ${existing&&!mismatch?`<div class="delle-validated">✓ Delle validé : <strong>${label(existing.driver)}</strong></div>`:''}
+    <div class="delle-actions"><button id="saveDelleTrip" class="btn smallbtn" type="button" ${!ready?'disabled':''}>${existing?'↻ Mettre à jour':'✓ Valider Delle'}</button>${existing?'<button id="deleteDelleTrip" class="btn secondary smallbtn" type="button">Annuler</button>':''}</div>
+  </div>`;
+  $('saveDelleTrip')?.addEventListener('click',async()=>{const btn=$('saveDelleTrip');btn.disabled=true;try{await saveDelleTrip(ds,$('delleDriver').value);}catch(e){alert(friendlyError(e));btn.disabled=false;}});
+  $('deleteDelleTrip')?.addEventListener('click',()=>deleteDelleTrip(ds));
+}
+async function saveDelleTrip(ds,driver){
+  if(!isDelleViewer()||!isDelleLinkedUser())throw new Error('Accès réservé à Igor et Ludo.');
+  const state=delleMainState(ds);if(state.kind!=='same'||!state.mainValidated)throw new Error('Valide d’abord le groupe principal.');
+  const mainDriver=state.mainDriver,forced=DELLE_PAIR.includes(mainDriver)?mainDriver:null;
+  if(!DELLE_PAIR.includes(driver))throw new Error('Conducteur Delle invalide.');
+  if(forced&&driver!==forced)throw new Error(`${label(forced)} doit conduire jusqu’à Delle car il conduit le groupe principal.`);
+  const existing=delleTrips.get(ds);
+  await setDoc(doc(db,'delleTrips',ds),{
+    date:ds,destination:'Delle',members:DELLE_PAIR,driver,
+    mainGroupId:state.group.id||null,mainGroupMembers:canonical(state.group.members||state.group.participants||[]),mainDriver,
+    privatePair:'igor_ludo',source:IS_TEST?'test':'app',validatedAt:existing?.validatedAt||serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId
+  },{merge:true});
+  toast(`✓ Delle : ${label(driver)} conducteur`);
+}
+async function deleteDelleTrip(ds){
+  if(!isDelleViewer()||!isDelleLinkedUser())return;
+  if(!confirm('Annuler le trajet privé jusqu’à Delle pour cette date ?'))return;
+  try{await deleteDoc(doc(db,'delleTrips',ds));toast('Trajet Delle annulé.');}catch(e){alert(friendlyError(e));}
+}
+// DELLE_PRIVATE_END
+
 function renderQuickProposal(ds){
   const box=$('quickProposal'); if(!box)return;
   if(!tripDaysReady){box.innerHTML='<div class="empty compact-empty">Calcul de la proposition…</div>';return;}
