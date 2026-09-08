@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.6 beta — rotation privée Igor/Ludo jusqu’à Delle
+// 4.6 beta.2 — historique Delle privé + départage dernière conduite
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.6.0-beta.1",
+  version: "4.6.0-beta.2",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
