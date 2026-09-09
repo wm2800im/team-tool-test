@@ -1,0 +1,61 @@
+name: TIMBRER WM unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [timbrer-wm-v1]
+    paths:
+      - '.github/workflows/timbrer-wm-ios-unsigned-ipa.yml'
+      - 'timbrer-wm-v1-source.part00.b64'
+      - 'timbrer-wm-v1-source.part01.b64'
+      - 'timbrer-wm-v1-source.part02.b64'
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Rebuild source archive
+        run: |
+          cat timbrer-wm-v1-source.part00.b64 timbrer-wm-v1-source.part01.b64 timbrer-wm-v1-source.part02.b64 | base64 --decode > TimbrerWM-v1-source.zip
+          unzip -t TimbrerWM-v1-source.zip
+          unzip -q TimbrerWM-v1-source.zip
+
+      - name: Generate Xcode project
+        working-directory: timbrer-wm-ios
+        run: xcodegen generate
+
+      - name: Build unsigned app for iPhone
+        working-directory: timbrer-wm-ios
+        run: |
+          xcodebuild \
+            -project TimbrerWM.xcodeproj \
+            -scheme TimbrerWM \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ../DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="DerivedData/Build/Products/Release-iphoneos/TimbrerWM.app"
+          test -d "$APP_PATH"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry TimbrerWM-v1-unsigned.ipa Payload
+          ls -lh TimbrerWM-v1-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TimbrerWM-v1-unsigned-ipa
+          path: TimbrerWM-v1-unsigned.ipa
+          retention-days: 30
