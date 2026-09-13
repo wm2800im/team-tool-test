@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.6 beta.4 — charte graphique Delle alignée sur le groupe principal
+// 4.6 beta.5 — notifications robustes par appareil
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.6.0-beta.4",
+  version: "4.6.0-beta.5",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",

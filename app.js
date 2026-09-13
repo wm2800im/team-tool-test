@@ -18,6 +18,9 @@ const db = getFirestore(app);
 let messaging = null;
 let messagingSwRegistration = null;
 let currentFcmToken = null;
+let messagingForegroundListenerBound = false;
+let notificationRepairInFlight = false;
+let notificationRepairLastAt = 0;
 
 const PEOPLE = ['aurelien','etienne','igor','ludo','stephane'];
 const LABELS = {aurelien:'Aurélien',etienne:'Étienne',igor:'Igor',ludo:'Ludo',stephane:'Stéphane'};
@@ -358,6 +361,8 @@ function initStaticUI(){
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').style.display='inline-block';});
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(console.warn);
   initMessaging().catch(console.warn);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)recheckNotificationState({silent:true}).catch(console.warn);});
+  window.addEventListener('pageshow',()=>recheckNotificationState({silent:true}).catch(console.warn));
 }
 function syncUnknownTimeHelp(){const help=$('timeUnknownHelp');if(help)help.style.display=$('timeLimit')?.value===LATE_UNKNOWN?'block':'none';}
 function fillTimeSelect(sel,value='16:15'){
@@ -838,57 +843,139 @@ function initSettingsUI(){
   if(IS_TEST){$('testUserSwitch').innerHTML=PEOPLE.map(p=>`<option value="${p}">${label(p)}</option>`).join('');$('testUserSwitch').value=profileId;}
   renderSettings();
 }
+function notificationPermissionState(){
+  if(!('Notification' in window))return 'unsupported';
+  return Notification.permission||'default';
+}
+function notificationBlockedHelp(){
+  return 'Notifications bloquées sur cet appareil. Autorise-les dans Chrome > Paramètres > Paramètres des sites > Notifications > wm2800im.github.io, et vérifie aussi Android > Applications > Chrome (ou Covoiturage) > Notifications.';
+}
+function ensureNotificationRecheckButton(){
+  const status=$('notificationStatus'); if(!status)return null;
+  let btn=$('notificationRecheckBtn');
+  if(!btn){
+    btn=document.createElement('button');btn.id='notificationRecheckBtn';btn.type='button';btn.className='btn secondary smallbtn';btn.textContent='↻ Revérifier cet appareil';btn.style.marginTop='8px';
+    status.insertAdjacentElement('afterend',btn);
+    btn.addEventListener('click',()=>recheckNotificationState({silent:false}));
+  }
+  return btn;
+}
 function renderSettings(){
   if(!$('menuProfileName'))return; $('menuProfileName').textContent=IS_TEST&&profileId!==linkedProfileId?`${label(linkedProfileId)} · simulation ${label(profileId)}`:label(profileId); $('aboutVersion').textContent=APP_VERSION;
   $('adminMenuBlock').style.display=linkedProfileId==='igor'?'block':'none'; $('testSwitchBlock').style.display=IS_TEST?'block':'none'; if(IS_TEST)$('testUserSwitch').value=profileId;
   const theme=pref(profileId).theme||'auto'; qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme));
-  const np=pref(linkedProfileId); $('notificationsToggle').checked=np.notificationsEnabled===true; $('notificationsToggle').disabled=IS_TEST&&profileId!==linkedProfileId;
-  $('notificationStatus').textContent=(IS_TEST&&profileId!==linkedProfileId)?'Repasse sur Igor pour tester les notifications de cet appareil.':(np.notificationsEnabled?'Rappel activé à 20h.':'Désactivé par défaut.');
-  const canTestNotifications=profileId===linkedProfileId&&np.notificationsEnabled;
+  const np=pref(linkedProfileId), permission=notificationPermissionState(), simulated=IS_TEST&&profileId!==linkedProfileId;
+  const toggle=$('notificationsToggle'), status=$('notificationStatus'), recheck=ensureNotificationRecheckButton();
+  let checked=false,disabled=simulated,txt='Désactivé par défaut.',showRecheck=false;
+  if(simulated){txt='Repasse sur Igor pour tester les notifications de cet appareil.';}
+  else if(permission==='unsupported'){
+    disabled=true;txt='Notifications non prises en charge par ce navigateur.';
+  }else if(permission==='denied'){
+    disabled=true;showRecheck=true;
+    txt=np.notificationsEnabled===true?`⚠️ Rappel activé pour ton profil, mais ${notificationBlockedHelp()}`:`⚠️ ${notificationBlockedHelp()}`;
+  }else if(permission==='default'){
+    checked=false;
+    txt=np.notificationsEnabled===true?'Rappel activé pour ton profil. Autorise les notifications sur cet appareil pour le recevoir ici.':'Active le rappel pour autoriser les notifications sur cet appareil.';
+  }else{
+    checked=np.notificationsEnabled===true;
+    txt=checked?'✓ Rappel activé à 20h · cet appareil est autorisé.':'Notifications autorisées sur cet appareil · rappel désactivé.';
+  }
+  toggle.checked=checked;toggle.disabled=disabled;status.textContent=txt;
+  if(recheck)recheck.style.display=showRecheck?'inline-flex':'none';
+  const canTestNotifications=!simulated&&permission==='granted'&&np.notificationsEnabled===true;
   const nta=$('notificationTestActions'); if(nta)nta.style.display=canTestNotifications?'flex':'none';
-  const localTestBtn=$('localNotificationTestBtn'); if(localTestBtn)localTestBtn.style.display=canTestNotifications?'inline-flex':'none';
+  const localTestBtn=$('localNotificationTestBtn'); if(localTestBtn){localTestBtn.style.display=canTestNotifications?'inline-flex':'none';localTestBtn.textContent='🔔 Tester cet appareil';}
   const copyTokenBtn=$('copyFcmTokenBtn'); if(copyTokenBtn)copyTokenBtn.style.display=(IS_TEST&&canTestNotifications)?'inline-flex':'none';
-  $('simulatedBadge').style.display=IS_TEST&&profileId!==linkedProfileId?'inline-block':'none'; $('simulatedBadge').textContent=IS_TEST&&profileId!==linkedProfileId?`simule ${label(profileId)}`:'';
+  $('simulatedBadge').style.display=simulated?'inline-block':'none'; $('simulatedBadge').textContent=simulated?`simule ${label(profileId)}`:'';
+  if(canTestNotifications)setTimeout(()=>repairNotificationRegistration({force:false}).catch(e=>console.warn('Notification auto-repair',e)),0);
 }
 function switchTestUser(pid){ if(!IS_TEST||!PEOPLE.includes(pid))return; profileId=pid; $('identityName').textContent=label(pid); applyTheme(); renderAll(); renderSettings(); closeSettingsMenu(); toast(`Simulation : ${label(pid)}`); }
 
 async function initMessaging(){
-  if(!('Notification' in window) || !(await messagingSupported()))return;
-  messaging=getMessaging(app);
-  if('serviceWorker' in navigator){try{messagingSwRegistration=await navigator.serviceWorker.register('./firebase-messaging-sw.js',{scope:'./fcm/'});}catch(e){console.warn('FCM SW',e);}}
-  onMessage(messaging,payload=>toast(payload?.notification?.body||'Nouvelle notification Covoiturage'));
+  if(!('Notification' in window) || !(await messagingSupported()))return false;
+  if(!messaging)messaging=getMessaging(app);
+  if('serviceWorker' in navigator && !messagingSwRegistration){
+    try{
+      messagingSwRegistration=await navigator.serviceWorker.register('./firebase-messaging-sw.js',{scope:'./fcm/',updateViaCache:'none'});
+      await messagingSwRegistration.update().catch(()=>{});
+    }catch(e){console.warn('FCM SW',e);throw new Error('Le service de notifications n’a pas pu démarrer sur cet appareil.');}
+  }
+  if(!messagingForegroundListenerBound){
+    onMessage(messaging,payload=>toast(payload?.notification?.body||'Nouvelle notification Covoiturage'));
+    messagingForegroundListenerBound=true;
+  }
+  return !!messaging;
+}
+async function registerCurrentDevicePush(){
+  if(!VAPID_KEY||VAPID_KEY.includes('REMPLACER'))throw new Error('La clé Web Push VAPID n’est pas configurée.');
+  if(notificationPermissionState()!=='granted')throw new Error(notificationPermissionState()==='denied'?notificationBlockedHelp():'Active d’abord les notifications sur cet appareil.');
+  if(!messaging)await initMessaging();
+  if(!messagingSwRegistration)throw new Error('Service de notifications indisponible. Recharge l’application puis réessaie.');
+  const token=await getToken(messaging,{vapidKey:VAPID_KEY,serviceWorkerRegistration:messagingSwRegistration});
+  if(!token)throw new Error('Impossible d’obtenir le jeton de notification de cet appareil.');
+  currentFcmToken=token;
+  await setDoc(doc(db,'pushTokens',authUser.uid),{profileId:linkedProfileId,token,enabled:true,permission:'granted',userAgent:navigator.userAgent.slice(0,300),updatedAt:serverTimestamp()},{merge:true});
+  return token;
+}
+async function repairNotificationRegistration({force=false}={}){
+  if(notificationRepairInFlight)return !!currentFcmToken;
+  if(notificationPermissionState()!=='granted'||pref(linkedProfileId).notificationsEnabled!==true||profileId!==linkedProfileId)return false;
+  const now=Date.now();if(!force&&now-notificationRepairLastAt<120000)return !!currentFcmToken;
+  notificationRepairInFlight=true;
+  try{await registerCurrentDevicePush();notificationRepairLastAt=Date.now();return true;}
+  finally{notificationRepairInFlight=false;}
+}
+async function recheckNotificationState({silent=false}={}){
+  renderSettings();
+  const permission=notificationPermissionState();
+  if(permission==='denied'){
+    if(!silent)alert(notificationBlockedHelp());
+    return false;
+  }
+  if(permission==='granted'&&pref(linkedProfileId).notificationsEnabled===true&&profileId===linkedProfileId){
+    try{await repairNotificationRegistration({force:true});if(!silent)toast('✓ Cet appareil est prêt à recevoir les notifications.');}
+    catch(e){console.error(e);if(!silent)alert(e.message||friendlyError(e));}
+  }
+  renderSettings();return permission==='granted';
 }
 async function toggleNotifications(){
   const el=$('notificationsToggle'); const enable=el.checked;
-  if(IS_TEST&&profileId!==linkedProfileId){el.checked=false;alert('Repasse sur Igor pour activer les notifications de cet appareil.');return;}
+  if(IS_TEST&&profileId!==linkedProfileId){renderSettings();alert('Repasse sur Igor pour activer les notifications de cet appareil.');return;}
   try{
     if(enable){
-      if(!VAPID_KEY||VAPID_KEY.includes('REMPLACER'))throw new Error('La clé Web Push VAPID n’est pas encore configurée.');
-      if(!messaging)await initMessaging(); const permission=await Notification.requestPermission(); if(permission!=='granted')throw new Error('Autorisation de notification refusée sur cet appareil.');
-      const token=await getToken(messaging,{vapidKey:VAPID_KEY,serviceWorkerRegistration:messagingSwRegistration||undefined}); if(!token)throw new Error('Impossible d’obtenir le jeton de notification.'); currentFcmToken=token;
-      await setDoc(doc(db,'pushTokens',authUser.uid),{profileId:linkedProfileId,token,enabled:true,userAgent:navigator.userAgent.slice(0,300),updatedAt:serverTimestamp()});
-      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:true,updatedAt:serverTimestamp()},{merge:true}); toast('Notifications activées.');
+      if(notificationPermissionState()==='denied')throw new Error(notificationBlockedHelp());
+      if(!messaging)await initMessaging();
+      let permission=notificationPermissionState();
+      if(permission==='default')permission=await Notification.requestPermission();
+      if(permission!=='granted')throw new Error(permission==='denied'?notificationBlockedHelp():'Autorisation de notification non accordée.');
+      await registerCurrentDevicePush();
+      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:true,updatedAt:serverTimestamp()},{merge:true});
+      notificationRepairLastAt=Date.now();toast('✓ Notifications activées sur cet appareil.');
     }else{
-      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:false,updatedAt:serverTimestamp()},{merge:true}); await deleteDoc(doc(db,'pushTokens',authUser.uid)).catch(()=>{}); if(messaging)await deleteToken(messaging).catch(()=>{}); currentFcmToken=null; toast('Notifications désactivées.');
+      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:false,updatedAt:serverTimestamp()},{merge:true});
+      await deleteDoc(doc(db,'pushTokens',authUser.uid)).catch(()=>{});
+      if(messaging)await deleteToken(messaging).catch(()=>{});
+      currentFcmToken=null;notificationRepairLastAt=0;toast('Notifications désactivées.');
     }
-  }catch(e){console.error(e);el.checked=!enable;alert(e.message||friendlyError(e));}
+  }catch(e){
+    console.error(e);renderSettings();
+    if(notificationPermissionState()==='denied')alert(notificationBlockedHelp());else alert(e.message||friendlyError(e));
+    return;
+  }
+  renderSettings();
 }
 
 async function ensureFcmToken(){
-  if(currentFcmToken)return currentFcmToken;
-  if(!VAPID_KEY)throw new Error('Clé VAPID absente.');
-  if(!messaging)await initMessaging();
-  if(Notification.permission!=='granted')throw new Error('Active d’abord les notifications.');
-  currentFcmToken=await getToken(messaging,{vapidKey:VAPID_KEY,serviceWorkerRegistration:messagingSwRegistration||undefined});
-  return currentFcmToken;
+  if(notificationPermissionState()!=='granted')throw new Error(notificationPermissionState()==='denied'?notificationBlockedHelp():'Active d’abord les notifications.');
+  return await registerCurrentDevicePush();
 }
 async function testLocalNotification(){
   try{
-    if(Notification.permission!=='granted')throw new Error('Active d’abord les notifications.');
+    await ensureFcmToken();
     const reg=messagingSwRegistration || await navigator.serviceWorker.ready;
-    await reg.showNotification(IS_TEST?'Covoiturage · TEST':'Covoiturage',{body:'Notification de test reçue correctement ✅',icon:'./icon-192.png',badge:'./icon-192.png',data:{link:'../'}});
-    toast('Notification de test envoyée sur cet appareil.');
-  }catch(e){alert(e.message||friendlyError(e));}
+    await reg.showNotification(IS_TEST?'Covoiturage · TEST':'Covoiturage',{body:'Notification de test reçue correctement ✅',icon:'./icon-192.png',badge:'./icon-192.png',tag:'covoiturage-device-test',renotify:true,data:{link:location.href}});
+    toast('✓ Test envoyé. Vérifie la notification Android.');
+  }catch(e){console.error(e);renderSettings();alert(e.message||friendlyError(e));}
 }
 async function copyFcmToken(){
   try{const token=await ensureFcmToken();await navigator.clipboard.writeText(token);toast('Jeton FCM copié.');}
