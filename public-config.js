@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.6 beta.2 — historique Delle privé + départage dernière conduite
+// 4.6 beta.3 — cohérence des boutons Delle validé / modification
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.6.0-beta.2",
+  version: "4.6.0-beta.3",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
@@ -130,4 +130,84 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
       </div>
     </details>
   `;
+});
+
+// 4.6 beta.3 — harmonisation visuelle et sémantique des actions Delle.
+// L'app métier reste inchangée : ce bloc ne touche qu'à l'état des contrôles déjà rendus.
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
+  const root = document.getElementById('dellePrivate');
+  if (!root || typeof MutationObserver === 'undefined') return;
+
+  const alignValidatedDelle = () => {
+    const validated = root.querySelector('.delle-validated');
+    const select = root.querySelector('#delleDriver');
+    const actions = root.querySelector('.delle-actions');
+    const appSave = root.querySelector('#saveDelleTrip');
+    const appDelete = root.querySelector('#deleteDelleTrip');
+
+    if (!validated || !select || !actions || !appSave || !appDelete) return;
+    if (actions.dataset.delleAligned === '1') return;
+    actions.dataset.delleAligned = '1';
+
+    const forcedByMainGroup = select.disabled || (root.querySelector('.delle-suggest')?.textContent || '').includes('Conducteur imposé');
+    const originalDriver = select.value;
+
+    // Les vrais boutons de l'app restent présents avec leurs gestionnaires,
+    // mais on affiche d'abord le même état "validé" que pour le trajet principal.
+    appSave.style.display = 'none';
+    appDelete.style.display = 'none';
+    select.disabled = true;
+
+    const doneBtn = document.createElement('button');
+    doneBtn.type = 'button';
+    doneBtn.className = 'btn smallbtn';
+    doneBtn.disabled = true;
+    doneBtn.textContent = '✓ Delle validé';
+
+    const modifyBtn = document.createElement('button');
+    modifyBtn.type = 'button';
+    modifyBtn.className = 'btn secondary smallbtn';
+    modifyBtn.textContent = 'Modifier';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn secondary smallbtn';
+    cancelBtn.textContent = 'Annuler';
+    cancelBtn.style.display = 'none';
+
+    const showValidatedState = () => {
+      select.value = originalDriver;
+      select.disabled = true;
+      appSave.style.display = 'none';
+      appDelete.style.display = 'none';
+      doneBtn.style.display = '';
+      modifyBtn.style.display = '';
+      cancelBtn.style.display = 'none';
+    };
+
+    modifyBtn.addEventListener('click', () => {
+      doneBtn.style.display = 'none';
+      modifyBtn.style.display = 'none';
+      cancelBtn.style.display = '';
+      select.disabled = forcedByMainGroup;
+
+      appSave.style.display = '';
+      appSave.disabled = false;
+      appSave.textContent = 'Enregistrer les modifications';
+
+      appDelete.style.display = '';
+      appDelete.className = 'btn danger smallbtn';
+      appDelete.textContent = 'Supprimer ce trajet';
+    });
+
+    cancelBtn.addEventListener('click', showValidatedState);
+
+    actions.appendChild(doneBtn);
+    actions.appendChild(modifyBtn);
+    actions.appendChild(cancelBtn);
+  };
+
+  const observer = new MutationObserver(() => alignValidatedDelle());
+  observer.observe(root, { childList: true, subtree: true });
+  alignValidatedDelle();
 });
