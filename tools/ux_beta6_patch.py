@@ -1,0 +1,124 @@
+from pathlib import Path
+import re
+
+p=Path('app.js')
+s=p.read_text(encoding='utf-8')
+
+old_long="return 'Notifications bloquées sur cet appareil. Autorise-les dans Chrome > Paramètres > Paramètres des sites > Notifications > wm2800im.github.io, et vérifie aussi Android > Applications > Chrome (ou Covoiturage) > Notifications.';"
+assert old_long in s, 'long notification help not found'
+s=s.replace(old_long,"return 'Notifications bloquées dans les réglages de ce téléphone.';",1)
+s=s.replace("btn.textContent='↻ Revérifier cet appareil';","btn.textContent='↻ Revérifier';",1)
+
+old="""  }else if(permission==='denied'){
+    disabled=true;showRecheck=true;
+    txt=np.notificationsEnabled===true?`⚠️ Rappel activé pour ton profil, mais ${notificationBlockedHelp()}`:`⚠️ ${notificationBlockedHelp()}`;
+  }else if(permission==='default'){
+    checked=false;
+    txt=np.notificationsEnabled===true?'Rappel activé pour ton profil. Autorise les notifications sur cet appareil pour le recevoir ici.':'Active le rappel pour autoriser les notifications sur cet appareil.';
+  }else{"""
+new="""  }else if(permission==='denied'){
+    disabled=true;showRecheck=true;
+    txt='⚠️ Notifications bloquées sur cet appareil.';
+  }else if(permission==='default'){
+    checked=false;showRecheck=np.notificationsEnabled===true;
+    txt=np.notificationsEnabled===true?'Notifications à autoriser sur cet appareil.':'Active le rappel pour recevoir les notifications.';
+  }else{"""
+assert old in s, 'notification render block not found'
+s=s.replace(old,new,1)
+s=s.replace("if(recheck)recheck.style.display=showRecheck?'inline-flex':'none';","if(recheck){recheck.style.display=showRecheck?'inline-flex':'none';recheck.textContent=permission==='default'?'🔔 Autoriser les notifications':'↻ Revérifier';}",1)
+
+old="""async function recheckNotificationState({silent=false}={}){
+  renderSettings();
+  const permission=notificationPermissionState();
+  if(permission==='denied'){
+    if(!silent)alert(notificationBlockedHelp());
+    return false;
+  }
+  if(permission==='granted'&&pref(linkedProfileId).notificationsEnabled===true&&profileId===linkedProfileId){
+    try{await repairNotificationRegistration({force:true});if(!silent)toast('✓ Cet appareil est prêt à recevoir les notifications.');}
+    catch(e){console.error(e);if(!silent)alert(e.message||friendlyError(e));}
+  }
+  renderSettings();return permission==='granted';
+}"""
+new="""async function recheckNotificationState({silent=false}={}){
+  let permission=notificationPermissionState();
+  if(permission==='default'&&!silent){
+    try{permission=await Notification.requestPermission();}catch(e){console.warn('Notification permission',e);}
+  }
+  if(permission==='denied'){
+    renderSettings();
+    if(!silent)toast('Toujours bloquées · réactive-les dans les réglages du téléphone.');
+    return false;
+  }
+  if(permission==='granted'&&pref(linkedProfileId).notificationsEnabled===true&&profileId===linkedProfileId){
+    try{await repairNotificationRegistration({force:true});if(!silent)toast('✓ Notifications prêtes sur cet appareil.');}
+    catch(e){console.error(e);if(!silent)toast('Impossible de réactiver les notifications.');}
+  }
+  renderSettings();return permission==='granted';
+}"""
+assert old in s, 'recheck function not found'
+s=s.replace(old,new,1)
+s=s.replace("if(notificationPermissionState()==='denied')alert(notificationBlockedHelp());else alert(e.message||friendlyError(e));","if(notificationPermissionState()==='denied')toast(notificationBlockedHelp());else alert(e.message||friendlyError(e));",1)
+
+s,n=re.subn(r"function dellePrivateHeader\(\)\{[^\n]*\}","function dellePrivateHeader(){return `<div class=\"proposal-head\"><h3>Covoiturage jusqu’à Delle</h3><span class=\"small muted\">🔒 Privé</span></div>`;}",s,count=1)
+assert n==1, 'dellePrivateHeader not found'
+s=s.replace("Historique Delle · Igor ${rotation.counts.igor} / Ludo ${rotation.counts.ludo}","Historique · Igor ${rotation.counts.igor} / Ludo ${rotation.counts.ludo}")
+s=s.replace("<summary>Historique Delle</summary>","<summary>Historique</summary>")
+s=s.replace("Aucun trajet Delle enregistré.","Aucun trajet enregistré.")
+s=s.replace("toast('✓ Historique Delle modifié')","toast('✓ Historique modifié')")
+
+render_re=r"function renderDellePrivate\(ds\)\{[\s\S]*?\n\}\nasync function writeDelleTrip"
+render_new=r'''function renderDellePrivate(ds){
+  const host=$('dellePrivate');if(!host)return;
+  host.style.display='none';host.innerHTML='';
+  if(!isDelleViewer())return;
+  host.style.display='block';
+  const history=delleHistoryHtml();
+  const shell=(body='')=>`<div class="proposal-shell delle-proposal-shell">${dellePrivateHeader()}${body}${history}</div>`;
+  if(delleTripsError){host.innerHTML=shell(`<div class="small muted">Données momentanément indisponibles.</div>`);bindDelleHistoryActions();return;}
+  const both=isAvailable(getAvail(ds,'igor'))&&isAvailable(getAvail(ds,'ludo'));
+  if(!both){host.innerHTML=shell(`<div class="small muted">Aucun trajet commun prévu.</div>`);bindDelleHistoryActions();return;}
+  const state=delleMainState(ds);
+  if(state.kind==='separate'){host.innerHTML=shell(`<div class="small muted">Igor et Ludo sont dans deux groupes différents.</div>`);bindDelleHistoryActions();return;}
+  if(state.kind!=='same'){host.innerHTML=shell(`<div class="small muted">En attente de la répartition principale.</div>`);bindDelleHistoryActions();return;}
+
+  const rotation=delleRotation(ds),existing=delleTrips.get(ds),mainDriver=state.mainDriver,forced=DELLE_PAIR.includes(mainDriver)?mainDriver:null;
+  const selected=forced||existing?.driver||rotation.suggested,ready=state.mainValidated;
+  const mismatch=existing&&forced&&existing.driver!==forced;
+  const validated=existing&&!mismatch;
+  host.innerHTML=`<div class="proposal-shell delle-proposal-shell">
+    ${dellePrivateHeader()}
+    <div class="proposal-group-simple">
+      <div class="proposal-main-line"><strong>Igor · Ludo</strong><span class="proposal-suggested">Suggéré : ${label(forced||rotation.suggested)}</span></div>
+      <div class="proposal-counter-line">Compteurs : Igor ${rotation.counts.igor} · Ludo ${rotation.counts.ludo}</div>
+      <div class="proposal-driver-row"><label>Conducteur réel</label><select id="delleDriver" class="input" ${(forced||!ready||validated)?'disabled':''}><option value="igor" ${selected==='igor'?'selected':''}>Igor</option><option value="ludo" ${selected==='ludo'?'selected':''}>Ludo</option></select></div>
+    </div>
+    ${mismatch?'<div class="group-warning">Le conducteur doit être remis à jour.</div>':''}
+    ${validated?`<div class="validated-summary"><div class="validated-title">✓ Trajet validé</div><div class="validated-line"><span>🚗 <strong>${label(existing.driver)}</strong></span></div></div>`:''}
+    <div class="quick-actions"><button id="saveDelleTrip" class="btn" type="button" ${(!ready||validated)?'disabled':''}>${validated?'✓ Trajet validé':existing?'↻ Mettre à jour':'✓ Valider le trajet'}</button><button id="openDelleHistory" class="btn secondary" type="button">Historique</button></div>
+    ${history}
+  </div>`;
+
+  $('saveDelleTrip')?.addEventListener('click',async()=>{const btn=$('saveDelleTrip');btn.disabled=true;try{await saveDelleTrip(ds,$('delleDriver').value);}catch(e){alert(friendlyError(e));btn.disabled=false;}});
+  $('openDelleHistory')?.addEventListener('click',()=>{const details=host.querySelector('.delle-history-shell');if(details){details.open=!details.open;if(details.open)details.scrollIntoView({behavior:'smooth',block:'nearest'});}});
+  $('delleDriver')?.addEventListener('change',()=>{const btn=$('saveDelleTrip');if(btn&&ready){btn.disabled=false;btn.textContent=existing?'↻ Mettre à jour':'✓ Valider le trajet';}});
+  bindDelleHistoryActions();
+}
+async function writeDelleTrip'''
+s,n=re.subn(render_re,render_new,s,count=1)
+assert n==1, f'renderDellePrivate replacement count={n}'
+p.write_text(s,encoding='utf-8')
+
+p=Path('public-config.js')
+s=p.read_text(encoding='utf-8')
+s=s.replace('// 4.6 beta.5 — notifications robustes par appareil','// 4.6 beta.6 — UX notifications simplifiée + Delle harmonisé',1)
+s=s.replace('version: "4.6.0-beta.5"','version: "4.6.0-beta.6"',1)
+marker='// 4.6 beta.3 — harmonisation visuelle et sémantique des actions Delle.'
+if marker in s:
+    s=s.split(marker,1)[0].rstrip()+"\n"
+p.write_text(s,encoding='utf-8')
+
+p=Path('service-worker.js')
+s=p.read_text(encoding='utf-8')
+s=s.replace("const CACHE='covoiturage-4.6.0-beta.5';","const CACHE='covoiturage-4.6.0-beta.6';",1)
+p.write_text(s,encoding='utf-8')
