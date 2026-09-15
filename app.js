@@ -977,7 +977,7 @@ async function testLocalNotification(){
     await ensureFcmToken();
     const reg=messagingSwRegistration || await navigator.serviceWorker.ready;
     await reg.showNotification(IS_TEST?'Covoiturage · TEST':'Covoiturage',{body:'Notification de test reçue correctement ✅',icon:'./icon-192.png',badge:'./icon-192.png',tag:'covoiturage-device-test',renotify:true,data:{link:location.href}});
-    toast('✓ Test envoyé. Vérifie la notification Android.');
+    toast('✓ Test envoyé. Vérifie la notification sur cet appareil.');
   }catch(e){console.error(e);renderSettings();alert(e.message||friendlyError(e));}
 }
 async function copyFcmToken(){
