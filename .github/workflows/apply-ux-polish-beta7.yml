@@ -1,0 +1,94 @@
+name: Apply UX polish beta7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-ux-polish-beta7.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply beta7 visual polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('styles.css')
+          s=p.read_text(encoding='utf-8')
+          marker='/* 4.6 beta.7 — Delle jaune pâle + toast au premier plan */'
+          block=r'''
+
+/* 4.6 beta.7 — Delle jaune pâle + toast au premier plan */
+.toast{z-index:260!important}
+.delle-proposal-shell{
+  background:#fff8e7!important;
+  border-color:#e6c86f!important;
+  color:#4f4210!important;
+}
+.delle-proposal-shell .proposal-head h3,
+.delle-proposal-shell .proposal-driver-row label{color:#6f5a0c!important}
+.delle-proposal-shell .proposal-suggested,
+.delle-proposal-shell .proposal-counter-line{color:#806d2d!important}
+.delle-proposal-shell .validated-summary{
+  background:rgba(255,255,255,.62)!important;
+  border-color:#e6c86f!important;
+  color:#6f5a0c!important;
+}
+.delle-proposal-shell .delle-history-shell{border-top-color:#eadca8!important}
+html[data-theme="dark"] .delle-proposal-shell{
+  background:#2b251a!important;
+  border-color:#705c26!important;
+  color:#ffe8a3!important;
+}
+html[data-theme="dark"] .delle-proposal-shell .proposal-head h3,
+html[data-theme="dark"] .delle-proposal-shell .proposal-driver-row label,
+html[data-theme="dark"] .delle-proposal-shell .proposal-suggested,
+html[data-theme="dark"] .delle-proposal-shell .proposal-counter-line{color:#f1c87e!important}
+html[data-theme="dark"] .delle-proposal-shell .validated-summary{
+  background:#342c1c!important;
+  border-color:#705c26!important;
+  color:#ffe8a3!important;
+}
+'''
+          if marker not in s:
+              s += block
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('public-config.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('// 4.6 beta.6 — UX notifications simplifiée + Delle harmonisé','// 4.6 beta.7 — Delle jaune pâle + notifications au premier plan',1)
+          s=s.replace('version: "4.6.0-beta.6"','version: "4.6.0-beta.7"',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('service-worker.js')
+          s=p.read_text(encoding='utf-8').replace("const CACHE='covoiturage-4.6.0-beta.6';","const CACHE='covoiturage-4.6.0-beta.7';",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Validate
+        run: |
+          node --check public-config.js
+          node --check service-worker.js
+          grep -q '4.6.0-beta.7' public-config.js
+          grep -q 'Delle jaune pâle' styles.css
+          grep -q 'z-index:260' styles.css
+
+      - name: Commit beta7
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add styles.css public-config.js service-worker.js
+          git commit -m 'fix(test): distinguish Delle card and foreground notification toast beta7'
+          git push origin HEAD:main
