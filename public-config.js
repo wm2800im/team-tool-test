@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.6 beta.5 — notifications robustes par appareil
+// 4.6 beta.6 — UX notifications simplifiée + Delle harmonisé
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.6.0-beta.5",
+  version: "4.6.0-beta.6",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
@@ -130,114 +130,4 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
       </div>
     </details>
   `;
-});
-
-// 4.6 beta.3 — harmonisation visuelle et sémantique des actions Delle.
-// L'app métier reste inchangée : ce bloc ne touche qu'à l'état des contrôles déjà rendus.
-if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
-  const root = document.getElementById('dellePrivate');
-  if (!root || typeof MutationObserver === 'undefined') return;
-
-  const alignValidatedDelle = () => {
-    const validated = root.querySelector('.delle-validated');
-    const select = root.querySelector('#delleDriver');
-    const actions = root.querySelector('.delle-actions');
-    const appSave = root.querySelector('#saveDelleTrip');
-    const appDelete = root.querySelector('#deleteDelleTrip');
-
-    if (!validated || !select || !actions || !appSave || !appDelete) return;
-    if (actions.dataset.delleAligned === '1') return;
-    actions.dataset.delleAligned = '1';
-
-    const forcedByMainGroup = select.disabled || (root.querySelector('.delle-suggest')?.textContent || '').includes('Conducteur imposé');
-    const originalDriver = select.value;
-
-    // Les vrais boutons de l'app restent présents avec leurs gestionnaires,
-    // mais on affiche d'abord le même état "validé" que pour le trajet principal.
-    appSave.style.display = 'none';
-    appDelete.style.display = 'none';
-    select.disabled = true;
-
-    const doneBtn = document.createElement('button');
-    doneBtn.type = 'button';
-    doneBtn.className = 'btn smallbtn';
-    doneBtn.disabled = true;
-    doneBtn.textContent = '✓ Delle validé';
-
-    const modifyBtn = document.createElement('button');
-    modifyBtn.type = 'button';
-    modifyBtn.className = 'btn secondary smallbtn';
-    modifyBtn.textContent = 'Modifier';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn secondary smallbtn';
-    cancelBtn.textContent = 'Annuler';
-    cancelBtn.style.display = 'none';
-
-    const showValidatedState = () => {
-      select.value = originalDriver;
-      select.disabled = true;
-      appSave.style.display = 'none';
-      appDelete.style.display = 'none';
-      doneBtn.style.display = '';
-      modifyBtn.style.display = '';
-      cancelBtn.style.display = 'none';
-    };
-
-    modifyBtn.addEventListener('click', () => {
-      doneBtn.style.display = 'none';
-      modifyBtn.style.display = 'none';
-      cancelBtn.style.display = '';
-      select.disabled = forcedByMainGroup;
-
-      appSave.style.display = '';
-      appSave.disabled = false;
-      appSave.textContent = 'Enregistrer les modifications';
-
-      appDelete.style.display = '';
-      appDelete.className = 'btn danger smallbtn';
-      appDelete.textContent = 'Supprimer ce trajet';
-    });
-
-    cancelBtn.addEventListener('click', showValidatedState);
-
-    actions.appendChild(doneBtn);
-    actions.appendChild(modifyBtn);
-    actions.appendChild(cancelBtn);
-  };
-
-  const observer = new MutationObserver(() => alignValidatedDelle());
-  observer.observe(root, { childList: true, subtree: true });
-  alignValidatedDelle();
-});
-
-// 4.6 beta.4 — même charte graphique pour le bloc Delle et le covoiturage principal.
-if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
-  if (document.getElementById('delle-main-style-sync')) return;
-  const style = document.createElement('style');
-  style.id = 'delle-main-style-sync';
-  style.textContent = `
-    .delle-private{width:100%;margin-top:9px;padding:12px;border:1px solid #86cba8;border-radius:14px;background:#e9f7f0;color:#123b29}
-    .delle-private .delle-head{margin-bottom:5px;align-items:center}
-    .delle-private .delle-head h3{margin:0;font-size:15px;color:#0f5f3a}
-    .delle-private .delle-lock{color:#2e7553;font-size:10.5px}.delle-private .delle-place{color:#4b7563;font-size:10.5px}
-    .delle-private .delle-body{display:grid;gap:7px}
-    .delle-private .delle-counters{display:block;margin-top:1px;font-size:11.5px;line-height:1.35;color:#4b7563}
-    .delle-private .delle-counters strong{padding:0;border:0;border-radius:0;background:transparent;color:inherit;font-size:inherit}
-    .delle-private .delle-suggest{font-size:11.5px;font-weight:750;color:#2e7553}
-    .delle-private .delle-driver-row{display:grid;grid-template-columns:auto minmax(120px,1fr);align-items:center;gap:8px;margin-top:2px}
-    .delle-private .delle-driver-row label{font-size:12px;font-weight:800;color:#315e4a}
-    .delle-private .delle-driver-row select{padding:9px;font-size:13px;border-radius:10px;background:var(--card)}
-    .delle-private .delle-validated{margin-top:2px;padding:9px 10px;border:1px solid #9fd7b9;border-radius:11px;background:rgba(255,255,255,.55);color:#0f5f3a;font-size:11.5px}
-    .delle-private .delle-actions{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);gap:7px;margin-top:2px}
-    .delle-private .delle-actions .btn{width:100%;min-height:44px;padding:11px 8px;font-size:12.5px}
-    .delle-private .delle-history-shell{border-top:1px solid #cce8d9;margin-top:12px;padding-top:10px}
-    html[data-theme="dark"] .delle-private{background:#13271f;border-color:#285a44;color:#bde8d1}
-    html[data-theme="dark"] .delle-private .delle-head h3,html[data-theme="dark"] .delle-private .delle-driver-row label{color:#9ce0bc}
-    html[data-theme="dark"] .delle-private .delle-lock,html[data-theme="dark"] .delle-private .delle-place,html[data-theme="dark"] .delle-private .delle-counters,html[data-theme="dark"] .delle-private .delle-suggest{color:#8fc9aa}
-    html[data-theme="dark"] .delle-private .delle-validated{background:#10231b;border-color:#285a44;color:#9ce0bc}
-    @media(max-width:620px){.delle-private{padding:12px;border-radius:14px}.delle-private .delle-driver-row{grid-template-columns:auto 1fr;gap:8px}.delle-private .delle-actions{grid-template-columns:1.25fr .75fr;gap:7px}}
-  `;
-  document.head.appendChild(style);
 });

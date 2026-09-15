@@ -848,13 +848,13 @@ function notificationPermissionState(){
   return Notification.permission||'default';
 }
 function notificationBlockedHelp(){
-  return 'Notifications bloquées sur cet appareil. Autorise-les dans Chrome > Paramètres > Paramètres des sites > Notifications > wm2800im.github.io, et vérifie aussi Android > Applications > Chrome (ou Covoiturage) > Notifications.';
+  return 'Notifications bloquées dans les réglages de ce téléphone.';
 }
 function ensureNotificationRecheckButton(){
   const status=$('notificationStatus'); if(!status)return null;
   let btn=$('notificationRecheckBtn');
   if(!btn){
-    btn=document.createElement('button');btn.id='notificationRecheckBtn';btn.type='button';btn.className='btn secondary smallbtn';btn.textContent='↻ Revérifier cet appareil';btn.style.marginTop='8px';
+    btn=document.createElement('button');btn.id='notificationRecheckBtn';btn.type='button';btn.className='btn secondary smallbtn';btn.textContent='↻ Revérifier';btn.style.marginTop='8px';
     status.insertAdjacentElement('afterend',btn);
     btn.addEventListener('click',()=>recheckNotificationState({silent:false}));
   }
@@ -872,16 +872,16 @@ function renderSettings(){
     disabled=true;txt='Notifications non prises en charge par ce navigateur.';
   }else if(permission==='denied'){
     disabled=true;showRecheck=true;
-    txt=np.notificationsEnabled===true?`⚠️ Rappel activé pour ton profil, mais ${notificationBlockedHelp()}`:`⚠️ ${notificationBlockedHelp()}`;
+    txt='⚠️ Notifications bloquées sur cet appareil.';
   }else if(permission==='default'){
-    checked=false;
-    txt=np.notificationsEnabled===true?'Rappel activé pour ton profil. Autorise les notifications sur cet appareil pour le recevoir ici.':'Active le rappel pour autoriser les notifications sur cet appareil.';
+    checked=false;showRecheck=np.notificationsEnabled===true;
+    txt=np.notificationsEnabled===true?'Notifications à autoriser sur cet appareil.':'Active le rappel pour recevoir les notifications.';
   }else{
     checked=np.notificationsEnabled===true;
     txt=checked?'✓ Rappel activé à 20h · cet appareil est autorisé.':'Notifications autorisées sur cet appareil · rappel désactivé.';
   }
   toggle.checked=checked;toggle.disabled=disabled;status.textContent=txt;
-  if(recheck)recheck.style.display=showRecheck?'inline-flex':'none';
+  if(recheck){recheck.style.display=showRecheck?'inline-flex':'none';recheck.textContent=permission==='default'?'🔔 Autoriser les notifications':'↻ Revérifier';}
   const canTestNotifications=!simulated&&permission==='granted'&&np.notificationsEnabled===true;
   const nta=$('notificationTestActions'); if(nta)nta.style.display=canTestNotifications?'flex':'none';
   const localTestBtn=$('localNotificationTestBtn'); if(localTestBtn){localTestBtn.style.display=canTestNotifications?'inline-flex':'none';localTestBtn.textContent='🔔 Tester cet appareil';}
@@ -926,15 +926,18 @@ async function repairNotificationRegistration({force=false}={}){
   finally{notificationRepairInFlight=false;}
 }
 async function recheckNotificationState({silent=false}={}){
-  renderSettings();
-  const permission=notificationPermissionState();
+  let permission=notificationPermissionState();
+  if(permission==='default'&&!silent){
+    try{permission=await Notification.requestPermission();}catch(e){console.warn('Notification permission',e);}
+  }
   if(permission==='denied'){
-    if(!silent)alert(notificationBlockedHelp());
+    renderSettings();
+    if(!silent)toast('Toujours bloquées · réactive-les dans les réglages du téléphone.');
     return false;
   }
   if(permission==='granted'&&pref(linkedProfileId).notificationsEnabled===true&&profileId===linkedProfileId){
-    try{await repairNotificationRegistration({force:true});if(!silent)toast('✓ Cet appareil est prêt à recevoir les notifications.');}
-    catch(e){console.error(e);if(!silent)alert(e.message||friendlyError(e));}
+    try{await repairNotificationRegistration({force:true});if(!silent)toast('✓ Notifications prêtes sur cet appareil.');}
+    catch(e){console.error(e);if(!silent)toast('Impossible de réactiver les notifications.');}
   }
   renderSettings();return permission==='granted';
 }
@@ -959,7 +962,7 @@ async function toggleNotifications(){
     }
   }catch(e){
     console.error(e);renderSettings();
-    if(notificationPermissionState()==='denied')alert(notificationBlockedHelp());else alert(e.message||friendlyError(e));
+    if(notificationPermissionState()==='denied')toast(notificationBlockedHelp());else alert(e.message||friendlyError(e));
     return;
   }
   renderSettings();
@@ -1132,16 +1135,16 @@ function delleMainState(ds){
   const mainValidated=!!validated&&validatedDriver===plannedDriver;
   return{kind:'same',proposal,group:ig,validated,mainValidated,mainDriver:validatedDriver||plannedDriver};
 }
-function dellePrivateHeader(){return `<div class="delle-head"><div><span class="delle-lock">🔒 Privé Igor · Ludo</span><h3>🚗 Jusqu’à Delle</h3></div><span class="delle-place">Point de ralliement</span></div>`;}
+function dellePrivateHeader(){return `<div class="proposal-head"><h3>Covoiturage jusqu’à Delle</h3><span class="small muted">🔒 Privé</span></div>`;}
 function delleHistoryHtml(){
-  if(!delleTripsReady)return '<details class="delle-history-shell"><summary>Historique Delle</summary><div class="small muted delle-history-loading">Chargement…</div></details>';
-  if(delleTripsError)return `<details class="delle-history-shell" open><summary>Historique Delle</summary><div class="delle-warning">Historique indisponible : ${delleTripsError}</div></details>`;
+  if(!delleTripsReady)return '<details class="delle-history-shell"><summary>Historique</summary><div class="small muted delle-history-loading">Chargement…</div></details>';
+  if(delleTripsError)return `<details class="delle-history-shell" open><summary>Historique</summary><div class="delle-warning">Historique indisponible : ${delleTripsError}</div></details>`;
   const rotation=delleRotation(),rows=[...delleTrips.values()].filter(x=>DELLE_PAIR.includes(x.driver)).sort((a,b)=>b.date.localeCompare(a.date));
   const list=rows.length?rows.slice(0,80).map(x=>{
     const st=historicalDelleMainState(x.date),forced=st.kind==='same'&&DELLE_PAIR.includes(st.mainDriver)?st.mainDriver:null;
     return `<div class="delle-history-row"><div class="delle-history-date"><strong>${fmtDate(x.date,{day:'2-digit',month:'2-digit',year:'numeric'})}</strong><span>${forced?'conducteur imposé par le groupe':'trajet privé'}</span></div><select class="input delle-history-select" data-date="${x.date}" ${forced?'disabled':''}><option value="igor" ${x.driver==='igor'?'selected':''}>Igor</option><option value="ludo" ${x.driver==='ludo'?'selected':''}>Ludo</option></select><button class="btn secondary smallbtn delle-history-save" data-date="${x.date}" ${forced?'disabled':''}>Modifier</button><button class="btn danger smallbtn delle-history-delete" data-date="${x.date}">Suppr.</button></div>`;
-  }).join(''):'<div class="small muted">Aucun trajet Delle enregistré.</div>';
-  return `<details class="delle-history-shell"><summary>Historique Delle · Igor ${rotation.counts.igor} / Ludo ${rotation.counts.ludo}</summary><div class="delle-history-body"><div class="delle-history-add"><div class="field"><label>Ajouter un ancien trajet</label><input id="delleHistoryDate" class="input" type="date" max="${todayISO()}"></div><div class="field"><label>Conducteur réel</label><select id="delleHistoryNewDriver" class="input"><option value="igor">Igor</option><option value="ludo">Ludo</option></select></div><button id="delleHistoryAdd" class="btn smallbtn" type="button">Ajouter</button></div><div id="delleHistoryState" class="small muted">Un trajet passé peut être ajouté si Igor et Ludo étaient dans le même groupe principal ce jour-là.</div><div class="delle-history-list">${list}</div></div></details>`;
+  }).join(''):'<div class="small muted">Aucun trajet enregistré.</div>';
+  return `<details class="delle-history-shell"><summary>Historique · Igor ${rotation.counts.igor} / Ludo ${rotation.counts.ludo}</summary><div class="delle-history-body"><div class="delle-history-add"><div class="field"><label>Ajouter un ancien trajet</label><input id="delleHistoryDate" class="input" type="date" max="${todayISO()}"></div><div class="field"><label>Conducteur réel</label><select id="delleHistoryNewDriver" class="input"><option value="igor">Igor</option><option value="ludo">Ludo</option></select></div><button id="delleHistoryAdd" class="btn smallbtn" type="button">Ajouter</button></div><div id="delleHistoryState" class="small muted">Un trajet passé peut être ajouté si Igor et Ludo étaient dans le même groupe principal ce jour-là.</div><div class="delle-history-list">${list}</div></div></details>`;
 }
 function bindDelleHistoryActions(){
   $('delleHistoryAdd')?.addEventListener('click',async()=>{
@@ -1151,7 +1154,7 @@ function bindDelleHistoryActions(){
   });
   qsa('.delle-history-save').forEach(btn=>btn.addEventListener('click',async()=>{
     const ds=btn.dataset.date,sel=document.querySelector(`.delle-history-select[data-date="${ds}"]`);btn.disabled=true;
-    try{await saveHistoricalDelleTrip(ds,sel?.value);toast('✓ Historique Delle modifié');}catch(e){alert(friendlyError(e));btn.disabled=false;}
+    try{await saveHistoricalDelleTrip(ds,sel?.value);toast('✓ Historique modifié');}catch(e){alert(friendlyError(e));btn.disabled=false;}
   }));
   qsa('.delle-history-delete').forEach(btn=>btn.addEventListener('click',()=>deleteDelleTrip(btn.dataset.date)));
 }
@@ -1161,18 +1164,34 @@ function renderDellePrivate(ds){
   if(!isDelleViewer())return;
   host.style.display='block';
   const history=delleHistoryHtml();
-  if(delleTripsError){host.innerHTML=`${dellePrivateHeader()}<div class="delle-warning">Données Delle indisponibles : ${delleTripsError}</div>${history}`;bindDelleHistoryActions();return;}
+  const shell=(body='')=>`<div class="proposal-shell delle-proposal-shell">${dellePrivateHeader()}${body}${history}</div>`;
+  if(delleTripsError){host.innerHTML=shell(`<div class="small muted">Données momentanément indisponibles.</div>`);bindDelleHistoryActions();return;}
   const both=isAvailable(getAvail(ds,'igor'))&&isAvailable(getAvail(ds,'ludo'));
-  if(!both){host.innerHTML=`${dellePrivateHeader()}<div class="small muted delle-no-live">Pas de trajet commun Delle prévu pour le prochain jour.</div>${history}`;bindDelleHistoryActions();return;}
+  if(!both){host.innerHTML=shell(`<div class="small muted">Aucun trajet commun prévu.</div>`);bindDelleHistoryActions();return;}
   const state=delleMainState(ds);
-  if(state.kind==='separate'){host.innerHTML=`${dellePrivateHeader()}<div class="delle-warning">Igor et Ludo sont dans des groupes différents : pas de trajet commun jusqu’à Delle.</div>${history}`;bindDelleHistoryActions();return;}
-  if(state.kind!=='same'){host.innerHTML=`${dellePrivateHeader()}<div class="small muted delle-no-live">La répartition principale doit être définie avant le trajet jusqu’à Delle.</div>${history}`;bindDelleHistoryActions();return;}
+  if(state.kind==='separate'){host.innerHTML=shell(`<div class="small muted">Igor et Ludo sont dans deux groupes différents.</div>`);bindDelleHistoryActions();return;}
+  if(state.kind!=='same'){host.innerHTML=shell(`<div class="small muted">En attente de la répartition principale.</div>`);bindDelleHistoryActions();return;}
+
   const rotation=delleRotation(ds),existing=delleTrips.get(ds),mainDriver=state.mainDriver,forced=DELLE_PAIR.includes(mainDriver)?mainDriver:null;
   const selected=forced||existing?.driver||rotation.suggested,ready=state.mainValidated;
   const mismatch=existing&&forced&&existing.driver!==forced;
-  host.innerHTML=`${dellePrivateHeader()}<div class="delle-body"><div class="delle-counters">Rotation Delle : Igor <strong>${rotation.counts.igor}</strong> · Ludo <strong>${rotation.counts.ludo}</strong></div><div class="delle-suggest">${forced?'🚘 Conducteur imposé par le groupe':'🔁 Tour conseillé'} : <strong>${label(forced||rotation.suggested)}</strong></div><div class="delle-driver-row"><label>Conducteur réel jusqu’à Delle</label><select id="delleDriver" class="input" ${(forced||!ready)?'disabled':''}><option value="igor" ${selected==='igor'?'selected':''}>Igor</option><option value="ludo" ${selected==='ludo'?'selected':''}>Ludo</option></select></div>${!ready?'<div class="small muted">Valide d’abord le groupe principal. La priorité du trajet principal est ainsi garantie.</div>':''}${mismatch?'<div class="delle-warning">Le trajet Delle enregistré ne correspond plus au conducteur du groupe principal. Mets-le à jour.</div>':''}${existing&&!mismatch?`<div class="delle-validated">✓ Delle validé : <strong>${label(existing.driver)}</strong></div>`:''}<div class="delle-actions"><button id="saveDelleTrip" class="btn smallbtn" type="button" ${!ready?'disabled':''}>${existing?'↻ Mettre à jour':'✓ Valider Delle'}</button>${existing?'<button id="deleteDelleTrip" class="btn secondary smallbtn" type="button">Annuler</button>':''}</div></div>${history}`;
+  const validated=existing&&!mismatch;
+  host.innerHTML=`<div class="proposal-shell delle-proposal-shell">
+    ${dellePrivateHeader()}
+    <div class="proposal-group-simple">
+      <div class="proposal-main-line"><strong>Igor · Ludo</strong><span class="proposal-suggested">Suggéré : ${label(forced||rotation.suggested)}</span></div>
+      <div class="proposal-counter-line">Compteurs : Igor ${rotation.counts.igor} · Ludo ${rotation.counts.ludo}</div>
+      <div class="proposal-driver-row"><label>Conducteur réel</label><select id="delleDriver" class="input" ${(forced||!ready||validated)?'disabled':''}><option value="igor" ${selected==='igor'?'selected':''}>Igor</option><option value="ludo" ${selected==='ludo'?'selected':''}>Ludo</option></select></div>
+    </div>
+    ${mismatch?'<div class="group-warning">Le conducteur doit être remis à jour.</div>':''}
+    ${validated?`<div class="validated-summary"><div class="validated-title">✓ Trajet validé</div><div class="validated-line"><span>🚗 <strong>${label(existing.driver)}</strong></span></div></div>`:''}
+    <div class="quick-actions"><button id="saveDelleTrip" class="btn" type="button" ${(!ready||validated)?'disabled':''}>${validated?'✓ Trajet validé':existing?'↻ Mettre à jour':'✓ Valider le trajet'}</button><button id="openDelleHistory" class="btn secondary" type="button">Historique</button></div>
+    ${history}
+  </div>`;
+
   $('saveDelleTrip')?.addEventListener('click',async()=>{const btn=$('saveDelleTrip');btn.disabled=true;try{await saveDelleTrip(ds,$('delleDriver').value);}catch(e){alert(friendlyError(e));btn.disabled=false;}});
-  $('deleteDelleTrip')?.addEventListener('click',()=>deleteDelleTrip(ds));
+  $('openDelleHistory')?.addEventListener('click',()=>{const details=host.querySelector('.delle-history-shell');if(details){details.open=!details.open;if(details.open)details.scrollIntoView({behavior:'smooth',block:'nearest'});}});
+  $('delleDriver')?.addEventListener('change',()=>{const btn=$('saveDelleTrip');if(btn&&ready){btn.disabled=false;btn.textContent=existing?'↻ Mettre à jour':'✓ Valider le trajet';}});
   bindDelleHistoryActions();
 }
 async function writeDelleTrip(ds,driver,state,source){
