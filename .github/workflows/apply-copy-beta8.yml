@@ -1,0 +1,63 @@
+name: Apply notification wording beta8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-copy-beta8.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply platform-neutral wording
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+          old="toast('✓ Test envoyé. Vérifie la notification Android.');"
+          new="toast('✓ Test envoyé. Vérifie la notification sur cet appareil.');"
+          if old not in s:
+              raise SystemExit('test notification text not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('public-config.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('// 4.6 beta.7 — Delle jaune pâle + notifications au premier plan','// 4.6 beta.8 — libellé notification neutre iPhone / Android',1)
+          s=s.replace('version: "4.6.0-beta.7"','version: "4.6.0-beta.8"',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('service-worker.js')
+          s=p.read_text(encoding='utf-8').replace("const CACHE='covoiturage-4.6.0-beta.7';","const CACHE='covoiturage-4.6.0-beta.8';",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Validate
+        run: |
+          node --check app.js
+          node --check public-config.js
+          node --check service-worker.js
+          grep -q '4.6.0-beta.8' public-config.js
+          grep -q 'notification sur cet appareil' app.js
+          ! grep -q 'Vérifie la notification Android' app.js
+
+      - name: Commit beta8
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js public-config.js service-worker.js
+          git commit -m 'fix(test): use platform-neutral notification test wording beta8'
+          git push origin HEAD:main
