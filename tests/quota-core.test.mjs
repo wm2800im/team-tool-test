@@ -13,6 +13,17 @@ import {
 
 const d=(id,data)=>({id,data});
 const maps=()=>({tripDays:new Map(),availability:new Map(),legacyStatus:new Map(),plans:new Map()});
+const canonical=x=>[...x].sort();
+const tripsFrom=tripDays=>{
+  const out=[];
+  for(const [date,day] of tripDays) for(const g of day.groups||[]) out.push({date,members:canonical(g.members||g.participants||[]),driver:g.driver||g.driverId});
+  return out;
+};
+const groupCounts=(trips,members,before='9999-12-31')=>{
+  const key=canonical(members).join('|'),counts=Object.fromEntries(members.map(p=>[p,0]));
+  for(const t of trips) if(t.date<before&&canonical(t.members).join('|')===key&&t.driver in counts) counts[t.driver]++;
+  return counts;
+};
 
 test('archive boundary',()=>{
   const b=makeArchiveBaseline({generation:'g1',generatedAtMs:1,
@@ -66,6 +77,21 @@ test('historical rebuild replaces an old driver cleanly',()=>{
   assert.equal(target.tripDays.get('2026-08-25').groups[0].driver,'igor');
   applyArchiveBaseline(second,target);
   assert.equal(target.tripDays.get('2026-08-25').groups[0].driver,'ludo');
+});
+
+test('driver counters are identical before and after archive/live split',()=>{
+  const raw=[
+    d('2026-08-25',{groups:[{id:'a',members:['igor','ludo'],driver:'igor'}]}),
+    d('2026-08-28',{groups:[{id:'b',members:['ludo','igor'],driver:'ludo'}]}),
+    d('2026-09-02',{groups:[{id:'c',members:['igor','ludo'],driver:'igor'}]}),
+    d('2026-09-03',{groups:[{id:'d',members:['igor','ludo','stephane'],driver:'stephane'}]})
+  ];
+  const expectedMap=new Map(raw.map(x=>[x.id,x.data]));
+  const baseline=makeArchiveBaseline({generation:'counts',generatedAtMs:7,tripDaysDocs:raw});
+  const target=maps();applyArchiveBaseline(baseline,target);
+  replaceLiveEntries(target.tripDays,raw.filter(x=>x.id>=HISTORY_LIVE_START).map(x=>[x.id,x.data]));
+  assert.deepEqual(groupCounts(tripsFrom(target.tripDays),['igor','ludo'],'2026-09-04'),groupCounts(tripsFrom(expectedMap),['igor','ludo'],'2026-09-04'));
+  assert.deepEqual(groupCounts(tripsFrom(target.tripDays),['igor','ludo','stephane'],'2026-09-04'),groupCounts(tripsFrom(expectedMap),['igor','ludo','stephane'],'2026-09-04'));
 });
 
 test('compact Firestore parts stay comfortably below document size in a large fixture',()=>{
