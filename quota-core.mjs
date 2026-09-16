@@ -1,5 +1,14 @@
 export const QUOTA_BASELINE_SCHEMA = 1;
-export const HISTORY_LIVE_START = '2026-09-01';
+
+export function historyLiveStartFor(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) throw new Error('Date invalide pour la fenêtre historique.');
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+}
+
+// On garde en temps réel uniquement le mois courant. Au changement de mois,
+// la baseline est reconstruite une seule fois puis le nouveau mois repart léger.
+export const HISTORY_LIVE_START = historyLiveStartFor();
 
 const canonicalIds = values => [...new Set((values || []).filter(Boolean).map(String))].sort();
 
