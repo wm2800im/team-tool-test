@@ -1,0 +1,201 @@
+name: Apply quota-safe beta2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-quota-safe-beta2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch archive-dirty handling and bulk historical edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+
+          if s.count("const APP_VERSION = ENV.version || '4.8.0-beta.1';") != 1:
+              raise SystemExit('app version marker mismatch')
+          s=s.replace("const APP_VERSION = ENV.version || '4.8.0-beta.1';","const APP_VERSION = ENV.version || '4.8.0-beta.2';",1)
+
+          old="""const QUOTA_BASELINE_DOC_IDS={
+            meta:'quotaBaselineMetaV1',trips:'quotaBaselineTripsV1',availability:'quotaBaselineAvailabilityV1',
+            legacyStatus:'quotaBaselineLegacyV1',plans:'quotaBaselinePlansV1'
+          };
+          const QUOTA_LOCAL_KEY=`covoiturage:${firebaseConfig.projectId}:quotaBaselineV1`;"""
+          new="""const QUOTA_BASELINE_DOC_IDS={
+            meta:'quotaBaselineMetaV1',trips:'quotaBaselineTripsV1',availability:'quotaBaselineAvailabilityV1',
+            legacyStatus:'quotaBaselineLegacyV1',plans:'quotaBaselinePlansV1'
+          };
+          const QUOTA_DIRTY_PLAN_ID='_quotaBaselineDirtyV1';
+          const QUOTA_LOCAL_KEY=`covoiturage:${firebaseConfig.projectId}:quotaBaselineV1`;"""
+          if s.count(old)!=1: raise SystemExit('baseline ids marker mismatch')
+          s=s.replace(old,new,1)
+
+          old="""async function ensureQuotaBaseline(){
+            if(quotaBaselinePromise)return quotaBaselinePromise;
+            quotaBaselinePromise=(async()=>{
+              const local=readLocalQuotaBaseline();if(local)applyQuotaBaseline(local);
+              try{
+                const server=await readServerQuotaBaseline();
+                if(server){if(!local||server.generation!==local.generation)applyQuotaBaseline(server);return server;}
+                return await rebuildQuotaBaseline({publish:linkedProfileId==='igor'});
+              }catch(e){
+                if(local){console.warn('Baseline serveur indisponible, utilisation du cache local.',e);return local;}
+                throw e;
+              }
+            })();
+            try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
+          }
+          function scheduleQuotaBaselineRebuild(date){
+            if(!date||date>=HISTORY_LIVE_START||linkedProfileId!=='igor')return;
+            clearTimeout(quotaBaselineRebuildTimer);
+            quotaBaselineRebuildTimer=setTimeout(()=>rebuildQuotaBaseline({publish:true}).catch(e=>console.warn('Rebuild baseline historique',e)),900);
+          }"""
+          new="""const quotaDirtyRef=()=>doc(db,'plans',QUOTA_DIRTY_PLAN_ID);
+          async function readQuotaDirtyAtMs(){
+            const snap=await getDoc(quotaDirtyRef());
+            return snap.exists()?Number(snap.data()?.dirtyAtMs||0):0;
+          }
+          async function markQuotaBaselineDirty(dirtyAtMs=Date.now()){
+            await setDoc(quotaDirtyRef(),{quotaBaselineDirty:true,dirtyAtMs,updatedBy:profileId||linkedProfileId||null,updatedAt:serverTimestamp()},{merge:true});
+            return dirtyAtMs;
+          }
+          async function ensureQuotaBaseline(){
+            if(quotaBaselinePromise)return quotaBaselinePromise;
+            quotaBaselinePromise=(async()=>{
+              const local=readLocalQuotaBaseline();if(local)applyQuotaBaseline(local);
+              try{
+                const [server,dirtyAtMs]=await Promise.all([readServerQuotaBaseline(),readQuotaDirtyAtMs()]);
+                const candidates=[local,server].filter(b=>isValidBaseline(b,HISTORY_LIVE_START));
+                const freshest=candidates.sort((a,b)=>Number(b.generatedAtMs||0)-Number(a.generatedAtMs||0))[0]||null;
+                if(freshest&&Number(freshest.generatedAtMs||0)>=dirtyAtMs){
+                  if(!local||freshest.generation!==local.generation)applyQuotaBaseline(freshest);
+                  return freshest;
+                }
+                return await rebuildQuotaBaseline({publish:linkedProfileId==='igor'});
+              }catch(e){
+                if(local){console.warn('Baseline serveur indisponible, utilisation du cache local.',e);return local;}
+                throw e;
+              }
+            })();
+            try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
+          }
+          function scheduleQuotaBaselineRebuild(date){
+            if(!date||date>=HISTORY_LIVE_START)return;
+            const dirtyAtMs=Date.now();
+            const dirtyWrite=markQuotaBaselineDirty(dirtyAtMs).catch(e=>{console.warn('Marqueur historique',e);return dirtyAtMs;});
+            if(linkedProfileId!=='igor')return;
+            clearTimeout(quotaBaselineRebuildTimer);
+            quotaBaselineRebuildTimer=setTimeout(async()=>{
+              await dirtyWrite;
+              await rebuildQuotaBaseline({publish:true}).catch(e=>console.warn('Rebuild baseline historique',e));
+            },900);
+          }"""
+          if s.count(old)!=1: raise SystemExit('ensure/schedule block mismatch')
+          s=s.replace(old,new,1)
+
+          old="""async function applyRange(){
+            const a=$('rangeStart').value,b=$('rangeEnd').value,st=$('rangeStatus').value,tm=$('rangeTime').value;
+            if(!a||!b||a>b){alert('Vérifie les dates.');return;}
+            const jobs=[];let d=fromISO(a),end=fromISO(b),n=0;
+            while(d<=end){const ds=iso(d);if(isWorkingDayISO(ds)){jobs.push(setDoc(doc(db,'availability',availKey(ds,profileId)),{date:ds,profileId,status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));n++;}d=addDays(d,1);}
+            try{await Promise.all(jobs);toast(`${n} jour(s) renseigné(s).`);}catch(e){alert(friendlyError(e));}
+          }"""
+          new="""async function applyRange(){
+            const a=$('rangeStart').value,b=$('rangeEnd').value,st=$('rangeStatus').value,tm=$('rangeTime').value;
+            if(!a||!b||a>b){alert('Vérifie les dates.');return;}
+            const jobs=[];let d=fromISO(a),end=fromISO(b),n=0,archiveTouched=false,firstArchiveDate=null;
+            while(d<=end){
+              const ds=iso(d);
+              if(isWorkingDayISO(ds)){
+                jobs.push(setDoc(doc(db,'availability',availKey(ds,profileId)),{date:ds,profileId,status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));
+                if(ds<HISTORY_LIVE_START){archiveTouched=true;firstArchiveDate=firstArchiveDate||ds;}
+                n++;
+              }
+              d=addDays(d,1);
+            }
+            try{await Promise.all(jobs);if(archiveTouched)scheduleQuotaBaselineRebuild(firstArchiveDate);toast(`${n} jour(s) renseigné(s).`);}catch(e){alert(friendlyError(e));}
+          }"""
+          if s.count(old)!=1: raise SystemExit('applyRange block mismatch')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('public-config.js');s=p.read_text(encoding='utf-8')
+          s=s.replace('// 4.8 beta.1 — accès Firestore quota-safe + cache persistant','// 4.8 beta.2 — quota-safe renforcé + cohérence des corrections historiques',1)
+          if s.count('version: "4.8.0-beta.1"')!=1: raise SystemExit('public config version mismatch')
+          s=s.replace('version: "4.8.0-beta.1"','version: "4.8.0-beta.2"',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('service-worker.js');s=p.read_text(encoding='utf-8')
+          if s.count("const CACHE='covoiturage-4.8.0-beta.1';")!=1: raise SystemExit('service worker version mismatch')
+          s=s.replace("const CACHE='covoiturage-4.8.0-beta.1';","const CACHE='covoiturage-4.8.0-beta.2';",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Syntax and whitespace validation
+        run: |
+          node --check app.js
+          node --check quota-core.mjs
+          node --check public-config.js
+          node --check service-worker.js
+          node --check notify-runner.mjs
+          git diff --check
+
+      - name: Run complete quota unit suite
+        run: node --test tests/quota-core.test.mjs
+
+      - name: Static architecture assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "persistentLocalCache" app.js
+          grep -q "persistentMultipleTabManager" app.js
+          grep -q "where(documentId(),'>=',HISTORY_LIVE_START)" app.js
+          grep -q "where(documentId(),'<',HISTORY_LIVE_START)" app.js
+          grep -q "QUOTA_DIRTY_PLAN_ID='_quotaBaselineDirtyV1'" app.js
+          grep -q "readQuotaDirtyAtMs" app.js
+          grep -q "markQuotaBaselineDirty" app.js
+          grep -q "archiveTouched" app.js
+          grep -q "scheduleQuotaBaselineRebuild(firstArchiveDate)" app.js
+          grep -q 'version: "4.8.0-beta.2"' public-config.js
+          grep -q "const CACHE='covoiturage-4.8.0-beta.2'" service-worker.js
+          grep -q "./quota-core.mjs" service-worker.js
+          ! grep -q "watch('tripDays',collection(db,'tripDays')" app.js
+          ! grep -q "watch('availability',collection(db,'availability')" app.js
+          ! grep -q "watch('legacyStatus',collection(db,'legacyStatus')" app.js
+          ! grep -q "watch('plans',collection(db,'plans')" app.js
+
+      - name: Verify Firebase browser exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js -o /tmp/firestore.js
+          grep -q "persistentLocalCache" /tmp/firestore.js
+          grep -q "persistentMultipleTabManager" /tmp/firestore.js
+          grep -q "documentId" /tmp/firestore.js
+          grep -q "initializeFirestore" /tmp/firestore.js
+
+      - name: Commit TEST 4.8.0-beta.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js public-config.js service-worker.js
+          git commit -m 'perf(test): harden quota-safe archive beta2'
+          git push origin HEAD:main
