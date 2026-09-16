@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.1';
+const APP_VERSION = ENV.version || '4.8.0-beta.2';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -76,6 +76,7 @@ const QUOTA_BASELINE_DOC_IDS={
   meta:'quotaBaselineMetaV1',trips:'quotaBaselineTripsV1',availability:'quotaBaselineAvailabilityV1',
   legacyStatus:'quotaBaselineLegacyV1',plans:'quotaBaselinePlansV1'
 };
+const QUOTA_DIRTY_PLAN_ID='_quotaBaselineDirtyV1';
 const QUOTA_LOCAL_KEY=`covoiturage:${firebaseConfig.projectId}:quotaBaselineV1`;
 let quotaBaseline=null;
 let quotaBaselineReady=false;
@@ -125,13 +126,27 @@ async function rebuildQuotaBaseline({publish=true}={}){
   if(publish&&linkedProfileId==='igor')await publishQuotaBaseline(baseline);
   return baseline;
 }
+const quotaDirtyRef=()=>doc(db,'plans',QUOTA_DIRTY_PLAN_ID);
+async function readQuotaDirtyAtMs(){
+  const snap=await getDoc(quotaDirtyRef());
+  return snap.exists()?Number(snap.data()?.dirtyAtMs||0):0;
+}
+async function markQuotaBaselineDirty(dirtyAtMs=Date.now()){
+  await setDoc(quotaDirtyRef(),{quotaBaselineDirty:true,dirtyAtMs,updatedBy:profileId||linkedProfileId||null,updatedAt:serverTimestamp()},{merge:true});
+  return dirtyAtMs;
+}
 async function ensureQuotaBaseline(){
   if(quotaBaselinePromise)return quotaBaselinePromise;
   quotaBaselinePromise=(async()=>{
     const local=readLocalQuotaBaseline();if(local)applyQuotaBaseline(local);
     try{
-      const server=await readServerQuotaBaseline();
-      if(server){if(!local||server.generation!==local.generation)applyQuotaBaseline(server);return server;}
+      const [server,dirtyAtMs]=await Promise.all([readServerQuotaBaseline(),readQuotaDirtyAtMs()]);
+      const candidates=[local,server].filter(b=>isValidBaseline(b,HISTORY_LIVE_START));
+      const freshest=candidates.sort((a,b)=>Number(b.generatedAtMs||0)-Number(a.generatedAtMs||0))[0]||null;
+      if(freshest&&Number(freshest.generatedAtMs||0)>=dirtyAtMs){
+        if(!local||freshest.generation!==local.generation)applyQuotaBaseline(freshest);
+        return freshest;
+      }
       return await rebuildQuotaBaseline({publish:linkedProfileId==='igor'});
     }catch(e){
       if(local){console.warn('Baseline serveur indisponible, utilisation du cache local.',e);return local;}
@@ -141,9 +156,15 @@ async function ensureQuotaBaseline(){
   try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
 }
 function scheduleQuotaBaselineRebuild(date){
-  if(!date||date>=HISTORY_LIVE_START||linkedProfileId!=='igor')return;
+  if(!date||date>=HISTORY_LIVE_START)return;
+  const dirtyAtMs=Date.now();
+  const dirtyWrite=markQuotaBaselineDirty(dirtyAtMs).catch(e=>{console.warn('Marqueur historique',e);return dirtyAtMs;});
+  if(linkedProfileId!=='igor')return;
   clearTimeout(quotaBaselineRebuildTimer);
-  quotaBaselineRebuildTimer=setTimeout(()=>rebuildQuotaBaseline({publish:true}).catch(e=>console.warn('Rebuild baseline historique',e)),900);
+  quotaBaselineRebuildTimer=setTimeout(async()=>{
+    await dirtyWrite;
+    await rebuildQuotaBaseline({publish:true}).catch(e=>console.warn('Rebuild baseline historique',e));
+  },900);
 }
 
 const $ = id => document.getElementById(id);
@@ -633,9 +654,17 @@ function renderPlanning(){
 async function applyRange(){
   const a=$('rangeStart').value,b=$('rangeEnd').value,st=$('rangeStatus').value,tm=$('rangeTime').value;
   if(!a||!b||a>b){alert('Vérifie les dates.');return;}
-  const jobs=[];let d=fromISO(a),end=fromISO(b),n=0;
-  while(d<=end){const ds=iso(d);if(isWorkingDayISO(ds)){jobs.push(setDoc(doc(db,'availability',availKey(ds,profileId)),{date:ds,profileId,status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));n++;}d=addDays(d,1);}
-  try{await Promise.all(jobs);toast(`${n} jour(s) renseigné(s).`);}catch(e){alert(friendlyError(e));}
+  const jobs=[];let d=fromISO(a),end=fromISO(b),n=0,archiveTouched=false,firstArchiveDate=null;
+  while(d<=end){
+    const ds=iso(d);
+    if(isWorkingDayISO(ds)){
+      jobs.push(setDoc(doc(db,'availability',availKey(ds,profileId)),{date:ds,profileId,status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));
+      if(ds<HISTORY_LIVE_START){archiveTouched=true;firstArchiveDate=firstArchiveDate||ds;}
+      n++;
+    }
+    d=addDays(d,1);
+  }
+  try{await Promise.all(jobs);if(archiveTouched)scheduleQuotaBaselineRebuild(firstArchiveDate);toast(`${n} jour(s) renseigné(s).`);}catch(e){alert(friendlyError(e));}
 }
 
 function currentPlan(date){ return plans.get(date)?.groups || []; }

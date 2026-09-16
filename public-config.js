@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.8 beta.1 — accès Firestore quota-safe + cache persistant
+// 4.8 beta.2 — quota-safe renforcé + cohérence des corrections historiques
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.8.0-beta.1",
+  version: "4.8.0-beta.2",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
