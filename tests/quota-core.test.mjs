@@ -7,7 +7,8 @@ import {
   combineBaselineParts,
   isValidBaseline,
   applyArchiveBaseline,
-  replaceLiveEntries
+  replaceLiveEntries,
+  encodedBytes
 } from '../quota-core.mjs';
 
 const d=(id,data)=>({id,data});
@@ -55,4 +56,32 @@ test('generation mismatch is rejected',()=>{
   const parts=splitBaselineParts(makeArchiveBaseline({generation:'g3',generatedAtMs:3}));
   parts.plans={...parts.plans,generation:'other'};
   assert.throws(()=>combineBaselineParts(parts),/Génération incohérente/);
+});
+
+test('historical rebuild replaces an old driver cleanly',()=>{
+  const first=makeArchiveBaseline({generation:'g4',generatedAtMs:4,tripDaysDocs:[d('2026-08-25',{groups:[{id:'g',members:['igor','ludo'],driver:'igor'}]})]});
+  const second=makeArchiveBaseline({generation:'g5',generatedAtMs:5,tripDaysDocs:[d('2026-08-25',{groups:[{id:'g',members:['igor','ludo'],driver:'ludo'}]})]});
+  const target=maps();
+  applyArchiveBaseline(first,target);
+  assert.equal(target.tripDays.get('2026-08-25').groups[0].driver,'igor');
+  applyArchiveBaseline(second,target);
+  assert.equal(target.tripDays.get('2026-08-25').groups[0].driver,'ludo');
+});
+
+test('compact Firestore parts stay comfortably below document size in a large fixture',()=>{
+  const tripDaysDocs=[],availabilityDocs=[],legacyStatusDocs=[],plansDocs=[];
+  const people=['aurelien','etienne','igor','ludo','stephane'];
+  for(let i=0;i<900;i++){
+    const dt=new Date(Date.UTC(2022,0,3+i));
+    const ds=dt.toISOString().slice(0,10);
+    if(ds>=HISTORY_LIVE_START)break;
+    tripDaysDocs.push(d(ds,{groups:[{id:`g${i}`,members:people,driver:people[i%5]}]}));
+    plansDocs.push(d(ds,{date:ds,groups:[{id:`g${i}`,members:people,driver:people[i%5]}]}));
+    for(const p of people){
+      availabilityDocs.push(d(`${ds}_${p}`,{date:ds,profileId:p,status:i%7===0?'alone':'present'}));
+      legacyStatusDocs.push(d(`${ds}_${p}`,{date:ds,profileId:p,status:i%11===0?'alone':'absent'}));
+    }
+  }
+  const parts=splitBaselineParts(makeArchiveBaseline({generation:'big',generatedAtMs:6,tripDaysDocs,availabilityDocs,legacyStatusDocs,plansDocs}));
+  for(const part of Object.values(parts)) assert.ok(encodedBytes(part)<800000);
 });
