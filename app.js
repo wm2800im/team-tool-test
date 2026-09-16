@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.2';
+const APP_VERSION = ENV.version || '4.8.0-beta.3';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -104,6 +104,9 @@ async function readServerQuotaBaseline(){
   const snaps=await Promise.all(names.map(name=>getDoc(doc(db,'config',QUOTA_BASELINE_DOC_IDS[name]))));
   if(snaps.some(x=>!x.exists()))return null;
   const parts=Object.fromEntries(names.map((name,i)=>[name,snaps[i].data()]));
+  // Au premier lancement d'un nouveau mois, la baseline du mois précédent
+  // est volontairement ignorée puis reconstruite avec la nouvelle frontière.
+  if(Object.values(parts).some(part=>part?.liveStart!==HISTORY_LIVE_START))return null;
   return combineBaselineParts(parts,HISTORY_LIVE_START);
 }
 async function publishQuotaBaseline(baseline){
