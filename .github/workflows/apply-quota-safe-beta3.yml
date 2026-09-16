@@ -1,0 +1,111 @@
+name: Apply quota-safe beta3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-quota-safe-beta3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-rolling-window:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Make monthly rollover safe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js');s=p.read_text(encoding='utf-8')
+          if s.count("const APP_VERSION = ENV.version || '4.8.0-beta.2';")!=1: raise SystemExit('app version mismatch')
+          s=s.replace("const APP_VERSION = ENV.version || '4.8.0-beta.2';","const APP_VERSION = ENV.version || '4.8.0-beta.3';",1)
+
+          old="""async function readServerQuotaBaseline(){
+            const names=Object.keys(QUOTA_BASELINE_DOC_IDS);
+            const snaps=await Promise.all(names.map(name=>getDoc(doc(db,'config',QUOTA_BASELINE_DOC_IDS[name]))));
+            if(snaps.some(x=>!x.exists()))return null;
+            const parts=Object.fromEntries(names.map((name,i)=>[name,snaps[i].data()]));
+            return combineBaselineParts(parts,HISTORY_LIVE_START);
+          }"""
+          new="""async function readServerQuotaBaseline(){
+            const names=Object.keys(QUOTA_BASELINE_DOC_IDS);
+            const snaps=await Promise.all(names.map(name=>getDoc(doc(db,'config',QUOTA_BASELINE_DOC_IDS[name]))));
+            if(snaps.some(x=>!x.exists()))return null;
+            const parts=Object.fromEntries(names.map((name,i)=>[name,snaps[i].data()]));
+            // Au premier lancement d'un nouveau mois, la baseline du mois précédent
+            // est volontairement ignorée puis reconstruite avec la nouvelle frontière.
+            if(Object.values(parts).some(part=>part?.liveStart!==HISTORY_LIVE_START))return null;
+            return combineBaselineParts(parts,HISTORY_LIVE_START);
+          }"""
+          if s.count(old)!=1: raise SystemExit('server baseline reader mismatch')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('public-config.js');s=p.read_text(encoding='utf-8')
+          s=s.replace('// 4.8 beta.2 — quota-safe renforcé + cohérence des corrections historiques','// 4.8 beta.3 — fenêtre live mensuelle glissante + cache persistant',1)
+          if s.count('version: "4.8.0-beta.2"')!=1: raise SystemExit('public version mismatch')
+          s=s.replace('version: "4.8.0-beta.2"','version: "4.8.0-beta.3"',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('service-worker.js');s=p.read_text(encoding='utf-8')
+          if s.count("const CACHE='covoiturage-4.8.0-beta.2';")!=1: raise SystemExit('SW version mismatch')
+          s=s.replace("const CACHE='covoiturage-4.8.0-beta.2';","const CACHE='covoiturage-4.8.0-beta.3';",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check quota-core.mjs
+          node --check public-config.js
+          node --check service-worker.js
+          node --check notify-runner.mjs
+          git diff --check
+
+      - name: Run all quota unit tests
+        run: node --test tests/quota-core.test.mjs
+
+      - name: Verify rolling-window architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "historyLiveStartFor" quota-core.mjs
+          grep -q "export const HISTORY_LIVE_START = historyLiveStartFor()" quota-core.mjs
+          ! grep -q "export const HISTORY_LIVE_START = '2026-09-01'" quota-core.mjs
+          grep -q "part?.liveStart!==HISTORY_LIVE_START" app.js
+          grep -q "where(documentId(),'>=',HISTORY_LIVE_START)" app.js
+          grep -q "where(documentId(),'<',HISTORY_LIVE_START)" app.js
+          grep -q "persistentLocalCache" app.js
+          grep -q "QUOTA_DIRTY_PLAN_ID='_quotaBaselineDirtyV1'" app.js
+          grep -q "archiveTouched" app.js
+          grep -q 'version: "4.8.0-beta.3"' public-config.js
+          grep -q "const CACHE='covoiturage-4.8.0-beta.3'" service-worker.js
+          ! grep -q "watch('tripDays',collection(db,'tripDays')" app.js
+          ! grep -q "watch('availability',collection(db,'availability')" app.js
+          ! grep -q "watch('legacyStatus',collection(db,'legacyStatus')" app.js
+          ! grep -q "watch('plans',collection(db,'plans')" app.js
+
+      - name: Verify Firebase 12.18 browser exports
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js -o /tmp/firestore.js
+          for symbol in persistentLocalCache persistentMultipleTabManager documentId initializeFirestore; do grep -q "$symbol" /tmp/firestore.js; done
+
+      - name: Commit TEST 4.8.0-beta.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js quota-core.mjs tests/quota-core.test.mjs public-config.js service-worker.js
+          git commit -m 'perf(test): rolling monthly quota-safe window beta3'
+          git push origin HEAD:main
