@@ -1,0 +1,329 @@
+name: Apply quota-safe beta1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-quota-safe-beta1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch TEST app for quota-safe Firestore access
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+
+          old="""import {
+            getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, runTransaction,
+            onSnapshot, serverTimestamp
+          } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';"""
+          new="""import {
+            getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+            collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, runTransaction,
+            onSnapshot, serverTimestamp, query, where, documentId
+          } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
+          import {
+            HISTORY_LIVE_START, makeArchiveBaseline, splitBaselineParts, combineBaselineParts,
+            isValidBaseline, applyArchiveBaseline, replaceLiveEntries
+          } from './quota-core.mjs';"""
+          if s.count(old)!=1: raise SystemExit('Firestore import block mismatch')
+          s=s.replace(old,new,1)
+
+          s=s.replace("const APP_VERSION = ENV.version || '4.6.0-beta.2';","const APP_VERSION = ENV.version || '4.8.0-beta.1';",1)
+
+          old="""const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          const db = getFirestore(app);"""
+          new="""const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          let db;
+          try{
+            db=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
+          }catch(e){
+            console.warn('Cache Firestore persistant indisponible, repli mémoire.',e);
+            db=getFirestore(app);
+          }"""
+          if s.count(old)!=1: raise SystemExit('Firestore init block mismatch')
+          s=s.replace(old,new,1)
+
+          marker="""let delleTripsError = '';
+          let delleUnsubscribe = null;
+          """
+          insert="""let delleTripsError = '';
+          let delleUnsubscribe = null;
+
+          // Quota-safe : les données historiques (avant septembre 2026) sont compactées
+          // dans 5 petits documents de configuration. Les collections volumineuses ne sont
+          // ensuite écoutées en temps réel que pour la période récente.
+          const QUOTA_BASELINE_DOC_IDS={
+            meta:'quotaBaselineMetaV1',trips:'quotaBaselineTripsV1',availability:'quotaBaselineAvailabilityV1',
+            legacyStatus:'quotaBaselineLegacyV1',plans:'quotaBaselinePlansV1'
+          };
+          const QUOTA_LOCAL_KEY=`covoiturage:${firebaseConfig.projectId}:quotaBaselineV1`;
+          let quotaBaseline=null;
+          let quotaBaselineReady=false;
+          let quotaBaselinePromise=null;
+          let quotaBaselineRebuildTimer=null;
+
+          const snapshotEntries=snap=>snap.docs.map(d=>[d.id,d.data()]);
+          const plainDocs=snap=>snap.docs.map(d=>({id:d.id,data:d.data()}));
+          const liveCollection=name=>query(collection(db,name),where(documentId(),'>=',HISTORY_LIVE_START));
+          const archiveCollection=name=>query(collection(db,name),where(documentId(),'<',HISTORY_LIVE_START));
+
+          function applyQuotaBaseline(baseline){
+            if(!isValidBaseline(baseline,HISTORY_LIVE_START))throw new Error('Baseline historique invalide.');
+            applyArchiveBaseline(baseline,{tripDays,availability,legacyStatus,plans});
+            quotaBaseline=baseline;quotaBaselineReady=true;
+            try{localStorage.setItem(QUOTA_LOCAL_KEY,JSON.stringify(baseline));}catch(e){console.warn('Cache historique local',e);}
+            console.info('[quota-safe] baseline prête',baseline.counts||{});
+            return baseline;
+          }
+          function readLocalQuotaBaseline(){
+            try{const raw=localStorage.getItem(QUOTA_LOCAL_KEY);if(!raw)return null;const b=JSON.parse(raw);return isValidBaseline(b,HISTORY_LIVE_START)?b:null;}catch(e){return null;}
+          }
+          async function readServerQuotaBaseline(){
+            const names=Object.keys(QUOTA_BASELINE_DOC_IDS);
+            const snaps=await Promise.all(names.map(name=>getDoc(doc(db,'config',QUOTA_BASELINE_DOC_IDS[name]))));
+            if(snaps.some(x=>!x.exists()))return null;
+            const parts=Object.fromEntries(names.map((name,i)=>[name,snaps[i].data()]));
+            return combineBaselineParts(parts,HISTORY_LIVE_START);
+          }
+          async function publishQuotaBaseline(baseline){
+            if(linkedProfileId!=='igor')return false;
+            const parts=splitBaselineParts(baseline),batch=writeBatch(db);
+            for(const [name,id] of Object.entries(QUOTA_BASELINE_DOC_IDS))batch.set(doc(db,'config',id),{...parts[name],updatedAt:serverTimestamp()});
+            await batch.commit();return true;
+          }
+          async function rebuildQuotaBaseline({publish=true}={}){
+            const [tripSnap,availSnap,legacySnap,planSnap]=await Promise.all([
+              getDocs(archiveCollection('tripDays')),getDocs(archiveCollection('availability')),
+              getDocs(archiveCollection('legacyStatus')),getDocs(archiveCollection('plans'))
+            ]);
+            const now=Date.now();
+            const baseline=makeArchiveBaseline({
+              tripDaysDocs:plainDocs(tripSnap),availabilityDocs:plainDocs(availSnap),legacyStatusDocs:plainDocs(legacySnap),plansDocs:plainDocs(planSnap),
+              liveStart:HISTORY_LIVE_START,generatedAtMs:now,generation:`${now}-${authUser?.uid?.slice(0,8)||'local'}`
+            });
+            applyQuotaBaseline(baseline);
+            if(publish&&linkedProfileId==='igor')await publishQuotaBaseline(baseline);
+            return baseline;
+          }
+          async function ensureQuotaBaseline(){
+            if(quotaBaselinePromise)return quotaBaselinePromise;
+            quotaBaselinePromise=(async()=>{
+              const local=readLocalQuotaBaseline();if(local)applyQuotaBaseline(local);
+              try{
+                const server=await readServerQuotaBaseline();
+                if(server){if(!local||server.generation!==local.generation)applyQuotaBaseline(server);return server;}
+                return await rebuildQuotaBaseline({publish:linkedProfileId==='igor'});
+              }catch(e){
+                if(local){console.warn('Baseline serveur indisponible, utilisation du cache local.',e);return local;}
+                throw e;
+              }
+            })();
+            try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
+          }
+          function scheduleQuotaBaselineRebuild(date){
+            if(!date||date>=HISTORY_LIVE_START||linkedProfileId!=='igor')return;
+            clearTimeout(quotaBaselineRebuildTimer);
+            quotaBaselineRebuildTimer=setTimeout(()=>rebuildQuotaBaseline({publish:true}).catch(e=>console.warn('Rebuild baseline historique',e)),900);
+          }
+          """
+          if s.count(marker)!=1: raise SystemExit('quota insertion marker mismatch')
+          s=s.replace(marker,insert,1)
+
+          old="""  initStaticUI();
+            initSettingsUI();
+            subscribeSharedData();
+            subscribeDellePrivate();"""
+          new="""  initStaticUI();
+            initSettingsUI();
+            setLoading('Optimisation des données…','Préparation de l’historique local.');
+            ensureQuotaBaseline().then(()=>{
+              subscribeSharedData();
+              subscribeDellePrivate();
+            }).catch(err=>{
+              console.error('Quota baseline',err);
+              showConnectionAlert('Historique optimisé indisponible · mode de secours');
+              quotaBaselineReady=false;
+              subscribeSharedData();
+              subscribeDellePrivate();
+            });"""
+          if s.count(old)!=1: raise SystemExit('launchLinkedApp block mismatch')
+          s=s.replace(old,new,1)
+
+          old="""function subscribeSharedData(){
+            setLoading('Chargement du prochain covoiturage…','Synchronisation des disponibilités.');
+            let initialRendered=false;
+            let deferredStarted=false;
+            const criticalNames=['profiles','availability','compatibilities','plans','preferences','calendar'];
+            const startDeferred=()=>{
+              if(deferredStarted)return;
+              deferredStarted=true;
+              const begin=()=>{
+                watch('legacyStatus',collection(db,'legacyStatus'),snap=>{ legacyStatus=new Map(snap.docs.map(d=>[d.id,d.data()])); legacyStatusReady=true; });
+              };
+              if('requestIdleCallback' in window) requestIdleCallback(begin,{timeout:1200});
+              else setTimeout(begin,150);
+            };
+            const completeInitial=()=>{
+              if(initialRendered || !criticalNames.every(name=>initializedSnapshots.has(name)))return;
+              initialRendered=true;
+              applyTheme();
+              renderTomorrow();
+              renderSettings();
+              hideLoading();
+              startDeferred();
+            };
+            const watch=(name,ref,handler)=>{
+              const off=onSnapshot(ref,snap=>{
+                handler(snap); initializedSnapshots.add(name); completeInitial(); if(initialRendered)refreshForData(name);
+              },err=>{console.error(name,err);showConnectionAlert('Erreur de synchronisation');});
+              unsubscribers.push(off);
+            };
+            // Les compteurs de rotation sont nécessaires à la proposition : on les charge immédiatement,
+            // sans les rendre bloquants pour l'affichage initial de la page.
+            watch('tripDays',collection(db,'tripDays'),snap=>{ tripDays=new Map(snap.docs.map(d=>[d.id,d.data()])); tripDaysReady=true; });
+            watch('profiles',collection(db,'profiles'),snap=>{ profiles=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+            watch('availability',collection(db,'availability'),snap=>{ availability=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+            watch('compatibilities',collection(db,'compatibilities'),snap=>{ compatibilities=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+            watch('plans',collection(db,'plans'),snap=>{ plans=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+            watch('preferences',collection(db,'preferences'),snap=>{ preferences=new Map(snap.docs.map(d=>[d.id,d.data()])); });
+            const offCalendar=onSnapshot(doc(db,'config','calendar'),snap=>{ calendarConfig=snap.exists()?snap.data():{exceptions:[]}; initializedSnapshots.add('calendar'); completeInitial(); if(initialRendered)refreshForData('calendar'); },err=>{console.error('calendar',err); initializedSnapshots.add('calendar'); completeInitial();});
+            unsubscribers.push(offCalendar);
+          }"""
+          new="""function subscribeSharedData(){
+            setLoading('Chargement du prochain covoiturage…','Synchronisation des disponibilités.');
+            let initialRendered=false;
+            let deferredStarted=false;
+            const criticalNames=['profiles','availability','compatibilities','plans','preferences','calendar'];
+            const largeRef=name=>quotaBaselineReady?liveCollection(name):collection(db,name);
+            const mergeOrReplace=(map,snap)=>{
+              if(quotaBaselineReady)replaceLiveEntries(map,snapshotEntries(snap),HISTORY_LIVE_START);
+              else{map.clear();snapshotEntries(snap).forEach(([id,data])=>map.set(id,data));}
+            };
+            const startDeferred=()=>{
+              if(deferredStarted)return;
+              deferredStarted=true;
+              const begin=()=>{
+                watch('legacyStatus',largeRef('legacyStatus'),snap=>{mergeOrReplace(legacyStatus,snap);legacyStatusReady=true;});
+              };
+              if('requestIdleCallback' in window) requestIdleCallback(begin,{timeout:1200});
+              else setTimeout(begin,150);
+            };
+            const completeInitial=()=>{
+              if(initialRendered || !criticalNames.every(name=>initializedSnapshots.has(name)))return;
+              initialRendered=true;
+              applyTheme();renderTomorrow();renderSettings();hideLoading();startDeferred();
+            };
+            const watch=(name,ref,handler)=>{
+              const off=onSnapshot(ref,snap=>{handler(snap);initializedSnapshots.add(name);completeInitial();if(initialRendered)refreshForData(name);},err=>{console.error(name,err);showConnectionAlert('Erreur de synchronisation');});
+              unsubscribers.push(off);
+            };
+            watch('tripDays',largeRef('tripDays'),snap=>{mergeOrReplace(tripDays,snap);tripDaysReady=true;});
+            watch('profiles',collection(db,'profiles'),snap=>{profiles=new Map(snap.docs.map(d=>[d.id,d.data()]));});
+            watch('availability',largeRef('availability'),snap=>{mergeOrReplace(availability,snap);});
+            watch('compatibilities',largeRef('compatibilities'),snap=>{mergeOrReplace(compatibilities,snap);});
+            watch('plans',largeRef('plans'),snap=>{mergeOrReplace(plans,snap);});
+            watch('preferences',collection(db,'preferences'),snap=>{preferences=new Map(snap.docs.map(d=>[d.id,d.data()]));});
+            const offCalendar=onSnapshot(doc(db,'config','calendar'),snap=>{calendarConfig=snap.exists()?snap.data():{exceptions:[]};initializedSnapshots.add('calendar');completeInitial();if(initialRendered)refreshForData('calendar');},err=>{console.error('calendar',err);initializedSnapshots.add('calendar');completeInitial();});
+            unsubscribers.push(offCalendar);
+          }"""
+          if s.count(old)!=1: raise SystemExit('subscribeSharedData block mismatch')
+          s=s.replace(old,new,1)
+
+          # Historical writes: keep the compact archive synchronized when Igor changes old data.
+          replacements=[
+            ("await setDoc(doc(db,'availability',key),{...optimistic,updatedAt:serverTimestamp()});\n    toast('✓ Enregistré');","await setDoc(doc(db,'availability',key),{...optimistic,updatedAt:serverTimestamp()});\n    scheduleQuotaBaselineRebuild(date);toast('✓ Enregistré');"),
+            ("try{await deleteDoc(doc(db,'availability',key));toast('✓ Enregistré');}","try{await deleteDoc(doc(db,'availability',key));scheduleQuotaBaselineRebuild(date);toast('✓ Enregistré');}"),
+            ("try{await setDoc(doc(db,'plans',date),{date,groups:normalized,updatedAt:serverTimestamp(),updatedBy:profileId});}","try{await setDoc(doc(db,'plans',date),{date,groups:normalized,updatedAt:serverTimestamp(),updatedBy:profileId});scheduleQuotaBaselineRebuild(date);}"),
+            ("toast(`✓ Groupe ${members.map(label).join(' · ')} enregistré`);","scheduleQuotaBaselineRebuild(ds);toast(`✓ Groupe ${members.map(label).join(' · ')} enregistré`);"),
+            ("toast('✓ Trajet supprimé');\n  }catch(e){tripDays.set(date,previous);","scheduleQuotaBaselineRebuild(date);toast('✓ Trajet supprimé');\n  }catch(e){tripDays.set(date,previous);"),
+            ("try{await Promise.all([setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);toast('✓ Trajet enregistré');}","try{await Promise.all([setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);scheduleQuotaBaselineRebuild(ds);toast('✓ Trajet enregistré');}"),
+            ("await Promise.all([deleteDoc(doc(db,'tripDays',ds)),deleteDoc(doc(db,'plans',ds))]);\n    toast('✓ Prêt pour un nouveau test');","await Promise.all([deleteDoc(doc(db,'tripDays',ds)),deleteDoc(doc(db,'plans',ds))]);\n    scheduleQuotaBaselineRebuild(ds);toast('✓ Prêt pour un nouveau test');")
+          ]
+          for i,(a,b) in enumerate(replacements,1):
+            if s.count(a)!=1: raise SystemExit(f'historical write patch {i} mismatch: {s.count(a)}')
+            s=s.replace(a,b,1)
+
+          old="""  await setDoc(doc(db,'config','calendar'),payload.calendar||{exceptions:[]});toast('Base TEST actualisée.');"""
+          new="""  await setDoc(doc(db,'config','calendar'),payload.calendar||{exceptions:[]});
+            await rebuildQuotaBaseline({publish:true});toast('Base TEST actualisée · historique optimisé recalculé.');"""
+          if s.count(old)!=1: raise SystemExit('snapshot import patch mismatch')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('public-config.js');s=p.read_text(encoding='utf-8')
+          s=s.replace('// 4.6 beta.8 — libellé notification neutre iPhone / Android','// 4.8 beta.1 — accès Firestore quota-safe + cache persistant',1)
+          if s.count('version: "4.6.0-beta.8"')!=1: raise SystemExit('public config version mismatch')
+          s=s.replace('version: "4.6.0-beta.8"','version: "4.8.0-beta.1"',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('service-worker.js');s=p.read_text(encoding='utf-8')
+          if s.count("const CACHE='covoiturage-4.6.0-beta.8';")!=1: raise SystemExit('cache version mismatch')
+          s=s.replace("const CACHE='covoiturage-4.6.0-beta.8';","const CACHE='covoiturage-4.8.0-beta.1';",1)
+          s=s.replace("'./app.js','./public-config.js'","'./app.js','./quota-core.mjs','./public-config.js'",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check quota-core.mjs
+          node --check public-config.js
+          node --check service-worker.js
+          git diff --check
+
+      - name: Unit tests
+        run: node --test tests/quota-core.test.mjs
+
+      - name: Quota architecture static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "persistentLocalCache" app.js
+          grep -q "persistentMultipleTabManager" app.js
+          grep -q "where(documentId(),'>=',HISTORY_LIVE_START)" app.js
+          grep -q "quotaBaselineTripsV1" app.js
+          grep -q "rebuildQuotaBaseline" app.js
+          grep -q "./quota-core.mjs" service-worker.js
+          grep -q 'version: "4.8.0-beta.1"' public-config.js
+          ! grep -q "watch('tripDays',collection(db,'tripDays')" app.js
+          ! grep -q "watch('availability',collection(db,'availability')" app.js
+          ! grep -q "watch('legacyStatus',collection(db,'legacyStatus')" app.js
+          ! grep -q "watch('plans',collection(db,'plans')" app.js
+
+      - name: Verify Firebase 12 exports used by the browser build
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js -o /tmp/firestore.js
+          grep -q "persistentLocalCache" /tmp/firestore.js
+          grep -q "persistentMultipleTabManager" /tmp/firestore.js
+          grep -q "documentId" /tmp/firestore.js
+
+      - name: Commit TEST 4.8.0-beta.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js public-config.js service-worker.js quota-core.mjs tests/quota-core.test.mjs
+          git commit -m 'perf(test): quota-safe Firestore baseline beta1'
+          git push origin HEAD:main
