@@ -130,6 +130,12 @@ export function isValidBaseline(baseline, expectedLiveStart = HISTORY_LIVE_START
     && Array.isArray(baseline.plans);
 }
 
+export function selectFreshBaseline(local, server, dirtyAtMs = 0, expectedLiveStart = HISTORY_LIVE_START) {
+  const candidates = [local, server].filter(b => isValidBaseline(b, expectedLiveStart));
+  const freshest = candidates.sort((a,b) => Number(b.generatedAtMs || 0) - Number(a.generatedAtMs || 0))[0] || null;
+  return freshest && Number(freshest.generatedAtMs || 0) >= Number(dirtyAtMs || 0) ? freshest : null;
+}
+
 function clearArchiveRange(map, liveStart) {
   for (const key of [...map.keys()]) if (String(key) < liveStart) map.delete(key);
 }

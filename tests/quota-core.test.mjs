@@ -6,6 +6,7 @@ import {
   splitBaselineParts,
   combineBaselineParts,
   isValidBaseline,
+  selectFreshBaseline,
   applyArchiveBaseline,
   replaceLiveEntries,
   encodedBytes
@@ -74,6 +75,22 @@ test('generation mismatch is rejected',()=>{
   const parts=splitBaselineParts(makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'g3',generatedAtMs:3}));
   parts.plans={...parts.plans,generation:'other'};
   assert.throws(()=>combineBaselineParts(parts,TEST_CUTOFF),/Génération incohérente/);
+});
+
+test('first launch can immediately reuse a freshly built local baseline',()=>{
+  const local=makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'local-first',generatedAtMs:100});
+  assert.equal(selectFreshBaseline(local,null,0,TEST_CUTOFF)?.generation,'local-first');
+});
+
+test('a dirty marker newer than local baseline forces a rebuild',()=>{
+  const local=makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'local-stale',generatedAtMs:100});
+  assert.equal(selectFreshBaseline(local,null,101,TEST_CUTOFF),null);
+});
+
+test('newer server baseline wins over older local cache',()=>{
+  const local=makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'local-old',generatedAtMs:100});
+  const server=makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'server-new',generatedAtMs:120});
+  assert.equal(selectFreshBaseline(local,server,0,TEST_CUTOFF)?.generation,'server-new');
 });
 
 test('historical rebuild replaces an old driver cleanly',()=>{

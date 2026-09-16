@@ -10,11 +10,11 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import {
   HISTORY_LIVE_START, makeArchiveBaseline, splitBaselineParts, combineBaselineParts,
-  isValidBaseline, applyArchiveBaseline, replaceLiveEntries
+  isValidBaseline, selectFreshBaseline, applyArchiveBaseline, replaceLiveEntries
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.3';
+const APP_VERSION = ENV.version || '4.8.0-beta.4';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -126,7 +126,13 @@ async function rebuildQuotaBaseline({publish=true}={}){
     liveStart:HISTORY_LIVE_START,generatedAtMs:now,generation:`${now}-${authUser?.uid?.slice(0,8)||'local'}`
   });
   applyQuotaBaseline(baseline);
-  if(publish&&linkedProfileId==='igor')await publishQuotaBaseline(baseline);
+  if(publish&&linkedProfileId==='igor'){
+    try{await publishQuotaBaseline(baseline);}
+    catch(e){
+      console.warn('Publication de la baseline différée : la copie locale reste utilisable.',e);
+      setTimeout(()=>publishQuotaBaseline(baseline).catch(err=>console.warn('Nouvelle tentative de publication baseline',err)),1500);
+    }
+  }
   return baseline;
 }
 const quotaDirtyRef=()=>doc(db,'plans',QUOTA_DIRTY_PLAN_ID);
@@ -144,15 +150,21 @@ async function ensureQuotaBaseline(){
     const local=readLocalQuotaBaseline();if(local)applyQuotaBaseline(local);
     try{
       const [server,dirtyAtMs]=await Promise.all([readServerQuotaBaseline(),readQuotaDirtyAtMs()]);
-      const candidates=[local,server].filter(b=>isValidBaseline(b,HISTORY_LIVE_START));
-      const freshest=candidates.sort((a,b)=>Number(b.generatedAtMs||0)-Number(a.generatedAtMs||0))[0]||null;
-      if(freshest&&Number(freshest.generatedAtMs||0)>=dirtyAtMs){
+      const freshest=selectFreshBaseline(local,server,dirtyAtMs,HISTORY_LIVE_START);
+      if(freshest){
         if(!local||freshest.generation!==local.generation)applyQuotaBaseline(freshest);
+        if(!server&&linkedProfileId==='igor')setTimeout(()=>publishQuotaBaseline(freshest).catch(err=>console.warn('Publication baseline locale',err)),0);
         return freshest;
       }
       return await rebuildQuotaBaseline({publish:linkedProfileId==='igor'});
     }catch(e){
-      if(local){console.warn('Baseline serveur indisponible, utilisation du cache local.',e);return local;}
+      const recovered=readLocalQuotaBaseline();
+      if(recovered){
+        applyQuotaBaseline(recovered);
+        console.warn('Baseline serveur indisponible au démarrage, récupération locale réussie.',e);
+        if(linkedProfileId==='igor')setTimeout(()=>publishQuotaBaseline(recovered).catch(err=>console.warn('Publication baseline récupérée',err)),0);
+        return recovered;
+      }
       throw e;
     }
   })();
