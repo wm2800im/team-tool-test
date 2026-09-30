@@ -128,6 +128,16 @@
     <div class="row between"><div><h1>Mon bilan</h1><div class="muted" id="summaryUser"></div></div><select id="summaryPeriod" class="input"><option value="month">Ce mois</option><option value="year">Cette année</option><option value="all">Depuis le début</option></select></div>
     <div class="kpis four"><div class="kpi"><span class="small muted">Conducteur</span><strong id="kDriver">0</strong><span class="small">fois</span></div><div class="kpi"><span class="small muted">Passager</span><strong id="kPassenger">0</strong><span class="small">fois</span></div><div class="kpi"><span class="small muted">Jours covoiturés</span><strong id="kCarpooled">0</strong><span class="small">jours</span></div><div class="kpi"><span class="small muted">Jours renseignés</span><strong id="kTracked">0</strong><span class="small">jours</span></div></div>
   </div>
+  <div class="card group-balance-shell">
+    <div class="row between group-balance-heading">
+      <div>
+        <h2>Bilan des groupes</h2>
+        <div class="small muted">Compteurs actuels de conduite pour chaque composition exacte.</div>
+      </div>
+      <span id="groupBalanceCount" class="pill">0 groupe</span>
+    </div>
+    <div id="groupBalanceList" class="group-balance-list"><div class="empty">Chargement du bilan…</div></div>
+  </div>
   <div class="grid two history-grid">
     <div class="card"><div class="row between"><div><h2>Historique des trajets</h2><div class="big" id="historyCount">0</div><div class="muted">trajets enregistrés</div></div><button id="exportHistory" class="btn secondary">⬇ Exporter CSV</button></div><div id="qualityBox" class="notice oknotice"><strong>Points à vérifier</strong><div id="qualityList" class="small"></div></div></div>
     <div class="card"><div class="field"><label>Filtrer</label><input id="historyFilter" placeholder="ex. Stéphane, IES, 2026-09"></div><div id="historyList" class="history-list"></div></div>
