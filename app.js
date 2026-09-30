@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.4';
+const APP_VERSION = ENV.version || '4.8.0-beta.5';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -918,11 +918,27 @@ function renderHistory(){
   $('historyList').innerHTML=ts.map(t=>{const counts=counterSnapshots.get(`${t.date}|${t.id}`)||{};return `<div class="hist-row"><div>${t.date}</div><div><strong>${groupCode(t.participants)}</strong> · ${canonical(t.participants).map(label).join(', ')}</div><div class="driver">🚗 ${label(t.driver)}</div><div class="hist-actions"><button class="btn secondary smallbtn edit-trip" data-date="${t.date}">Modifier</button><button class="btn danger smallbtn delete-trip" data-date="${t.date}" data-id="${t.id}">Suppr.</button></div><div class="hist-counter">Compteurs après ce trajet : ${canonical(t.participants).map(p=>`${label(p)} <strong>${counts[p]||0}</strong>`).join(' · ')}</div></div>`;}).join('')||'<div class="empty">Aucun résultat.</div>';
   $('historyList').querySelectorAll('.edit-trip').forEach(b=>b.addEventListener('click',()=>loadValidatedIntoPlan(b.dataset.date))); $('historyList').querySelectorAll('.delete-trip').forEach(b=>b.addEventListener('click',()=>deleteHistoryGroup(b.dataset.date,b.dataset.id)));
 }
+function buildCurrentGroupCounters(trips){
+  const counters=new Map();
+  trips.forEach(t=>{
+    const members=canonical(t.participants),key=members.join('|');
+    let counts=counters.get(key);
+    if(!counts){counts=Object.fromEntries(members.map(p=>[p,0]));counters.set(key,counts);}
+    if(t.driver in counts)counts[t.driver]++;
+  });
+  return counters;
+}
 function exportHistoryCSV(){
-  const rows=[['Date','Groupe','Participants','Conducteur','Source']];
-  flattenTrips().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>rows.push([t.date,groupCode(t.participants),canonical(t.participants).map(label).join(' + '),label(t.driver),t.source||'']));
+  const trips=flattenTrips().sort((a,b)=>a.date.localeCompare(b.date)||String(a.id).localeCompare(String(b.id)));
+  const currentCounters=buildCurrentGroupCounters(trips);
+  const rows=[['Date','Groupe','Participants','Conducteur','Source','Compteurs actuels du groupe']];
+  trips.forEach(t=>{
+    const members=canonical(t.participants),counts=currentCounters.get(members.join('|'))||{};
+    const countersText=members.map(p=>`${label(p)} ${counts[p]||0}`).join(' · ');
+    rows.push([t.date,groupCode(t.participants),members.map(label).join(' + '),label(t.driver),t.source||'',countersText]);
+  });
   const esc=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv='\ufeff'+rows.map(r=>r.map(esc).join(';')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Historique_Covoiturage_${iso(new Date())}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Historique exporté.');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Historique_Covoiturage_${iso(new Date())}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Historique exporté avec les compteurs actuels.');
 }
 
 async function queueAdminBroadcastTest(){
