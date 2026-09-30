@@ -1,0 +1,55 @@
+name: Verify TEST CSV global summary beta6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-csv-global-summary-beta6.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check public-config.js
+          node --check service-worker.js
+          node --check quota-core.mjs
+      - name: Regression tests
+        run: node --test tests/quota-core.test.mjs
+      - name: Verify global CSV summary
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const assert=require('assert/strict');
+          const src=fs.readFileSync('app.js','utf8');
+          assert(src.includes("BILAN GLOBAL DES COMPTEURS ACTUELS"));
+          assert(src.includes("['Groupe',...PEOPLE.map(label)]"));
+          assert(src.includes("Object.prototype.hasOwnProperty.call(counts,p)?counts[p]:''"));
+          assert(src.includes("toast('Historique exporté avec le bilan global des compteurs.')"));
+          const m=src.match(/function buildCurrentGroupCounters\(trips\)\{[\s\S]*?\n\}/);
+          assert(m,'buildCurrentGroupCounters introuvable');
+          const canonical=arr=>[...new Set(arr)].sort();
+          eval(m[0]);
+          const trips=[
+            {participants:['etienne','igor','ludo'],driver:'etienne'},
+            {participants:['igor','ludo','etienne'],driver:'igor'},
+            {participants:['ludo','etienne','igor'],driver:'ludo'},
+            {participants:['igor','ludo','etienne'],driver:'igor'},
+            {participants:['etienne','aurelien','stephane'],driver:'stephane'},
+            {participants:['aurelien','stephane','etienne'],driver:'aurelien'}
+          ];
+          const c=buildCurrentGroupCounters(trips);
+          assert.deepEqual(c.get('etienne|igor|ludo'),{etienne:1,igor:2,ludo:1});
+          assert.deepEqual(c.get('aurelien|etienne|stephane'),{aurelien:1,etienne:0,stephane:1});
+          console.log('Global CSV summary: OK');
+          NODE
+      - name: Verify TEST beta6 version
+        run: |
+          grep -q 'version: "4.8.0-beta.6"' public-config.js
+          grep -q "covoiturage-4.8.0-beta.6" service-worker.js
