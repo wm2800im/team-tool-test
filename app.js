@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.5';
+const APP_VERSION = ENV.version || '4.8.0-beta.6';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -931,14 +931,21 @@ function buildCurrentGroupCounters(trips){
 function exportHistoryCSV(){
   const trips=flattenTrips().sort((a,b)=>a.date.localeCompare(b.date)||String(a.id).localeCompare(String(b.id)));
   const currentCounters=buildCurrentGroupCounters(trips);
-  const rows=[['Date','Groupe','Participants','Conducteur','Source','Compteurs actuels du groupe']];
-  trips.forEach(t=>{
-    const members=canonical(t.participants),counts=currentCounters.get(members.join('|'))||{};
-    const countersText=members.map(p=>`${label(p)} ${counts[p]||0}`).join(' · ');
-    rows.push([t.date,groupCode(t.participants),members.map(label).join(' + '),label(t.driver),t.source||'',countersText]);
-  });
+  const rows=[['Date','Groupe','Participants','Conducteur','Source']];
+  trips.forEach(t=>rows.push([t.date,groupCode(t.participants),canonical(t.participants).map(label).join(' + '),label(t.driver),t.source||'']));
+
+  // Bilan global : une ligne par composition exacte de groupe et une colonne par personne.
+  rows.push([]);
+  rows.push(['BILAN GLOBAL DES COMPTEURS ACTUELS']);
+  rows.push(['Groupe',...PEOPLE.map(label)]);
+  const summaries=[...currentCounters.entries()].map(([key,counts])=>{
+    const members=key.split('|').filter(Boolean);
+    return {code:groupCode(members),counts};
+  }).sort((a,b)=>a.code.length-b.code.length||a.code.localeCompare(b.code,'fr'));
+  summaries.forEach(({code,counts})=>rows.push([code,...PEOPLE.map(p=>Object.prototype.hasOwnProperty.call(counts,p)?counts[p]:'')]));
+
   const esc=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv='\ufeff'+rows.map(r=>r.map(esc).join(';')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Historique_Covoiturage_${iso(new Date())}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Historique exporté avec les compteurs actuels.');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Historique_Covoiturage_${iso(new Date())}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Historique exporté avec le bilan global des compteurs.');
 }
 
 async function queueAdminBroadcastTest(){
