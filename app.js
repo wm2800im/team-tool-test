@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.6';
+const APP_VERSION = ENV.version || '4.8.0-beta.7';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -911,9 +911,11 @@ function renderHistory(){
   if(!tripDaysReady){
     $('historyCount').textContent='…';
     $('historyList').innerHTML='<div class="empty">Chargement de l’historique…</div>';
+    if($('groupBalanceList'))$('groupBalanceList').innerHTML='<div class="empty">Chargement du bilan…</div>';
+    if($('groupBalanceCount'))$('groupBalanceCount').textContent='…';
     return;
   }
-  const raw=flattenTrips(),counterSnapshots=buildHistoryCounterSnapshots(raw),all=[...raw].sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all);
+  const raw=flattenTrips(),counterSnapshots=buildHistoryCounterSnapshots(raw),all=[...raw].sort((a,b)=>b.date.localeCompare(a.date)); $('historyCount').textContent=all.length; renderQualityChecks(all); renderGroupCounterSummary(raw);
   const q=($('historyFilter').value||'').trim().toLowerCase();let ts=all; if(q)ts=ts.filter(t=>`${t.date} ${groupCode(t.participants)} ${canonical(t.participants).map(label).join(' ')} ${label(t.driver)}`.toLowerCase().includes(q)); ts=ts.slice(0,300);
   $('historyList').innerHTML=ts.map(t=>{const counts=counterSnapshots.get(`${t.date}|${t.id}`)||{};return `<div class="hist-row"><div>${t.date}</div><div><strong>${groupCode(t.participants)}</strong> · ${canonical(t.participants).map(label).join(', ')}</div><div class="driver">🚗 ${label(t.driver)}</div><div class="hist-actions"><button class="btn secondary smallbtn edit-trip" data-date="${t.date}">Modifier</button><button class="btn danger smallbtn delete-trip" data-date="${t.date}" data-id="${t.id}">Suppr.</button></div><div class="hist-counter">Compteurs après ce trajet : ${canonical(t.participants).map(p=>`${label(p)} <strong>${counts[p]||0}</strong>`).join(' · ')}</div></div>`;}).join('')||'<div class="empty">Aucun résultat.</div>';
   $('historyList').querySelectorAll('.edit-trip').forEach(b=>b.addEventListener('click',()=>loadValidatedIntoPlan(b.dataset.date))); $('historyList').querySelectorAll('.delete-trip').forEach(b=>b.addEventListener('click',()=>deleteHistoryGroup(b.dataset.date,b.dataset.id)));
@@ -927,6 +929,42 @@ function buildCurrentGroupCounters(trips){
     if(t.driver in counts)counts[t.driver]++;
   });
   return counters;
+}
+function currentGroupCounterSummary(trips){
+  return [...buildCurrentGroupCounters(trips).entries()].map(([key,counts])=>{
+    const members=key.split('|').filter(Boolean);
+    return {members,code:groupCode(members),counts};
+  }).sort((a,b)=>a.members.length-b.members.length||a.code.localeCompare(b.code,'fr'));
+}
+function renderGroupCounterSummary(trips){
+  const host=$('groupBalanceList'),countHost=$('groupBalanceCount');
+  if(!host)return;
+  const summaries=currentGroupCounterSummary(trips);
+  if(countHost)countHost.textContent=`${summaries.length} groupe${summaries.length>1?'s':''}`;
+  if(!summaries.length){
+    host.innerHTML='<div class="empty">Aucun groupe enregistré.</div>';
+    return;
+  }
+  const sections=new Map();
+  summaries.forEach(item=>{
+    const size=item.members.length;
+    if(!sections.has(size))sections.set(size,[]);
+    sections.get(size).push(item);
+  });
+  host.innerHTML=[...sections.entries()].map(([size,items])=>{
+    const title=size===2?'Binômes':`Groupes de ${size}`;
+    const cards=items.map(({members,code,counts})=>`
+      <div class="group-balance-card">
+        <div class="group-balance-card-head">
+          <strong class="group-balance-code">${code}</strong>
+          <span class="small muted">${members.map(label).join(' · ')}</span>
+        </div>
+        <div class="group-balance-values">
+          ${members.map(p=>`<div class="group-balance-value"><span>${label(p)}</span><strong>${counts[p]||0}</strong></div>`).join('')}
+        </div>
+      </div>`).join('');
+    return `<section class="group-balance-section"><div class="group-balance-section-title">${title}</div><div class="group-balance-grid">${cards}</div></section>`;
+  }).join('');
 }
 function exportHistoryCSV(){
   const trips=flattenTrips().sort((a,b)=>a.date.localeCompare(b.date)||String(a.id).localeCompare(String(b.id)));
