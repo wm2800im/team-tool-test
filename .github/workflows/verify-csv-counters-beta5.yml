@@ -1,0 +1,56 @@
+name: Verify TEST CSV counters beta5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-csv-counters-beta5.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check public-config.js
+          node --check service-worker.js
+          node --check quota-core.mjs
+
+      - name: Existing quota-safe regression suite
+        run: node --test tests/quota-core.test.mjs
+
+      - name: Verify CSV current counters logic
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const assert=require('assert/strict');
+          const src=fs.readFileSync('app.js','utf8');
+          assert(src.includes("['Date','Groupe','Participants','Conducteur','Source','Compteurs actuels du groupe']"));
+          assert(src.includes("toast('Historique exporté avec les compteurs actuels.')"));
+          const m=src.match(/function buildCurrentGroupCounters\(trips\)\{[\s\S]*?\n\}/);
+          assert(m,'buildCurrentGroupCounters introuvable');
+          const canonical=arr=>[...new Set(arr)].sort();
+          eval(m[0]);
+          const trips=[
+            {participants:['igor','ludo'],driver:'igor'},
+            {participants:['ludo','igor'],driver:'ludo'},
+            {participants:['igor','ludo'],driver:'igor'},
+            {participants:['igor','ludo','stephane'],driver:'stephane'},
+            {participants:['stephane','ludo','igor'],driver:'igor'}
+          ];
+          const c=buildCurrentGroupCounters(trips);
+          assert.deepEqual(c.get('igor|ludo'),{igor:2,ludo:1});
+          assert.deepEqual(c.get('igor|ludo|stephane'),{igor:1,ludo:0,stephane:1});
+          console.log('CSV counters: OK');
+          NODE
+
+      - name: Verify TEST version
+        run: |
+          grep -q 'version: "4.8.0-beta.5"' public-config.js
+          grep -q "covoiturage-4.8.0-beta.5" service-worker.js
