@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.8 beta.7 — bilan global des groupes directement dans Historique
+// 4.8 beta.8 — filtre instantané du bilan des groupes par initiales
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.8.0-beta.7",
+  version: "4.8.0-beta.8",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
