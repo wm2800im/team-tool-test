@@ -1,0 +1,61 @@
+name: Verify TEST group balance filter beta8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-group-balance-filter-beta8.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check public-config.js
+          node --check service-worker.js
+          node --check quota-core.mjs
+
+      - name: Existing quota-safe regression suite
+        run: node --test tests/quota-core.test.mjs
+
+      - name: Verify instant group filtering
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const assert=require('assert/strict');
+          const app=fs.readFileSync('app.js','utf8');
+          const html=fs.readFileSync('index.html','utf8');
+
+          assert(html.includes('id="groupBalanceFilter"'));
+          assert(app.includes("groupBalanceFilter')?.addEventListener('input'"));
+          assert(app.includes("Tape une ou plusieurs initiales"));
+
+          const PEOPLE=['aurelien','etienne','igor','ludo','stephane'];
+          const INITIAL={aurelien:'A',etienne:'E',igor:'I',ludo:'L',stephane:'S'};
+          const block=app.match(/function groupBalanceFilterLetters\(value\)\{[\s\S]*?\n\}\nfunction groupBalanceMatches\(code,value\)\{[\s\S]*?\n\}/);
+          assert(block,'filter functions missing');
+          eval(block[0]);
+
+          assert.deepEqual(groupBalanceFilterLetters('i a l'),['I','A','L']);
+          assert.deepEqual(groupBalanceFilterLetters('iil'),['I','L']);
+          assert.equal(groupBalanceMatches('AIL','IAL'),true);
+          assert.equal(groupBalanceMatches('AILS','IAL'),true);
+          assert.equal(groupBalanceMatches('AEIL','IAL'),true);
+          assert.equal(groupBalanceMatches('ILS','IAL'),false);
+          assert.equal(groupBalanceMatches('AEIS','I'),true);
+          assert.equal(groupBalanceMatches('AEL','I'),false);
+          assert.equal(groupBalanceMatches('AIL',''),false);
+          console.log('Instant group filter: OK');
+          NODE
+
+      - name: Verify TEST beta8 version
+        run: |
+          grep -q 'version: "4.8.0-beta.8"' public-config.js
+          grep -q "covoiturage-4.8.0-beta.8" service-worker.js
