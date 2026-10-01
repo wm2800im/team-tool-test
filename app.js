@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.7';
+const APP_VERSION = ENV.version || '4.8.0-beta.8';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -480,7 +480,7 @@ function initStaticUI(){
   $('saveTime').addEventListener('click',()=>setAvailability(nextCarpoolISO(),'time',$('timeLimit').value));
   $('rangeStatus').addEventListener('change',()=>{$('rangeTimeField').style.display=$('rangeStatus').value==='time'?'flex':'none';});
   $('applyRange').addEventListener('click',applyRange); $('groupDate').addEventListener('change',renderGroups); $('addGroup').addEventListener('click',addSelectedGroup); $('validateTrips').addEventListener('click',validateTrips);
-  $('summaryPeriod').addEventListener('change',()=>{renderSummary();renderHistory();}); $('historyFilter').addEventListener('input',renderHistory); $('exportHistory').addEventListener('click',exportHistoryCSV); $('installBtn').addEventListener('click',installPwa);
+  $('summaryPeriod').addEventListener('change',()=>{renderSummary();renderHistory();}); $('historyFilter').addEventListener('input',renderHistory); $('groupBalanceFilter')?.addEventListener('input',()=>renderGroupCounterSummary(flattenTrips())); $('exportHistory').addEventListener('click',exportHistoryCSV); $('installBtn').addEventListener('click',installPwa);
   $('menuBtn').addEventListener('click',openSettingsMenu); $('closeMenuBtn').addEventListener('click',closeSettingsMenu); $('menuBackdrop').addEventListener('click',closeSettingsMenu); $('openAdminBtn').addEventListener('click',()=>{closeSettingsMenu();openPage('admin');});
   $('aboutToggle').addEventListener('click',()=>{const details=$('aboutDetails');const open=details.style.display!=='none';details.style.display=open?'none':'block';$('aboutToggle').classList.toggle('open',!open);});
   $('donateBtn').addEventListener('click',()=>{const el=$('coffeeThanks');if(el){el.style.display='block';setTimeout(()=>{el.style.display='none';},3500);}});
@@ -936,13 +936,30 @@ function currentGroupCounterSummary(trips){
     return {members,code:groupCode(members),counts};
   }).sort((a,b)=>a.members.length-b.members.length||a.code.localeCompare(b.code,'fr'));
 }
+function groupBalanceFilterLetters(value){
+  const valid=new Set(PEOPLE.map(p=>INITIAL[p]).filter(Boolean));
+  return [...new Set(String(value||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').filter(ch=>valid.has(ch)))];
+}
+function groupBalanceMatches(code,value){
+  const letters=groupBalanceFilterLetters(value);
+  if(!letters.length)return false;
+  const normalized=String(code||'').toUpperCase();
+  return letters.every(ch=>normalized.includes(ch));
+}
 function renderGroupCounterSummary(trips){
-  const host=$('groupBalanceList'),countHost=$('groupBalanceCount');
+  const host=$('groupBalanceList'),countHost=$('groupBalanceCount'),filter=$('groupBalanceFilter');
   if(!host)return;
-  const summaries=currentGroupCounterSummary(trips);
+  const rawFilter=filter?.value||'';
+  const letters=groupBalanceFilterLetters(rawFilter);
+  if(!letters.length){
+    if(countHost)countHost.textContent='—';
+    host.innerHTML='<div class="empty">Tape une ou plusieurs initiales : A, E, I, L ou S.</div>';
+    return;
+  }
+  const summaries=currentGroupCounterSummary(trips).filter(item=>groupBalanceMatches(item.code,rawFilter));
   if(countHost)countHost.textContent=`${summaries.length} groupe${summaries.length>1?'s':''}`;
   if(!summaries.length){
-    host.innerHTML='<div class="empty">Aucun groupe enregistré.</div>';
+    host.innerHTML=`<div class="empty">Aucun groupe ne contient ${letters.join(' · ')}.</div>`;
     return;
   }
   const sections=new Map();
