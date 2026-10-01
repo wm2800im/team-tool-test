@@ -132,11 +132,16 @@
     <div class="row between group-balance-heading">
       <div>
         <h2>Bilan des groupes</h2>
-        <div class="small muted">Compteurs actuels de conduite pour chaque composition exacte.</div>
+        <div class="small muted">Tape les initiales des personnes à comparer. Le résultat se filtre instantanément.</div>
       </div>
-      <span id="groupBalanceCount" class="pill">0 groupe</span>
+      <span id="groupBalanceCount" class="pill">—</span>
     </div>
-    <div id="groupBalanceList" class="group-balance-list"><div class="empty">Chargement du bilan…</div></div>
+    <div class="group-balance-search">
+      <label for="groupBalanceFilter">Initiales du groupe</label>
+      <input id="groupBalanceFilter" class="input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ex. I · IL · IAL">
+      <div class="small muted">Ordre indifférent : IAL trouve aussi AIL, AILS, AEIL…</div>
+    </div>
+    <div id="groupBalanceList" class="group-balance-list"><div class="empty">Tape une ou plusieurs initiales : A, E, I, L ou S.</div></div>
   </div>
   <div class="grid two history-grid">
     <div class="card"><div class="row between"><div><h2>Historique des trajets</h2><div class="big" id="historyCount">0</div><div class="muted">trajets enregistrés</div></div><button id="exportHistory" class="btn secondary">⬇ Exporter CSV</button></div><div id="qualityBox" class="notice oknotice"><strong>Points à vérifier</strong><div id="qualityList" class="small"></div></div></div>
