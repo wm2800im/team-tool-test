@@ -1,0 +1,282 @@
+name: Apply richer Halloween skin TEST beta10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-halloween-skin-beta10.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply richer seasonal Halloween skin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Version app only: keep all business logic unchanged.
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+          old="const APP_VERSION = ENV.version || '4.8.0-beta.9';"
+          if s.count(old)!=1:
+              raise SystemExit('Version app TEST inattendue')
+          s=s.replace(old,"const APP_VERSION = ENV.version || '4.8.0-beta.10';",1)
+          p.write_text(s,encoding='utf-8')
+
+          # Stronger but still elegant decorative Halloween layer.
+          p=Path('styles.css')
+          s=p.read_text(encoding='utf-8')
+          if 'HALLOWEEN TEST beta10' in s:
+              raise SystemExit('Skin beta10 déjà présent')
+          skin=r'''
+
+          /* HALLOWEEN TEST beta10 — plus visible, davantage d’icônes, sans toucher à la logique */
+          html.season-halloween .compact-header::after{
+            content:'🦇  🎃  👻  🕸️  🦇';
+            display:block;
+            text-align:center;
+            font-size:20px;
+            line-height:1;
+            letter-spacing:7px;
+            margin-top:7px;
+            padding-top:5px;
+            border-top:1px solid rgba(205,126,53,.20);
+            filter:drop-shadow(0 1px 1px rgba(50,24,45,.12));
+          }
+          html.season-halloween .test-banner::after{
+            content:'  ·  🎃  HALLOWEEN  👻  🦇';
+            color:#ffc27c;
+            font-weight:950;
+            letter-spacing:.35px;
+          }
+
+          /* Deux décorations flottantes en bord d’écran : visibles mais non interactives. */
+          html.season-halloween body::before,
+          html.season-halloween body::after{
+            position:fixed;
+            z-index:28;
+            pointer-events:none;
+            user-select:none;
+            opacity:.58;
+            filter:drop-shadow(0 2px 3px rgba(51,26,47,.15));
+          }
+          html.season-halloween body::before{
+            content:'🦇';
+            left:10px;
+            top:124px;
+            font-size:31px;
+            transform:rotate(-12deg);
+            animation:halloweenFloatLeft 5.4s ease-in-out infinite;
+          }
+          html.season-halloween body::after{
+            content:'🕷️';
+            right:10px;
+            top:150px;
+            font-size:27px;
+            animation:halloweenFloatRight 6.2s ease-in-out infinite;
+          }
+          @keyframes halloweenFloatLeft{
+            0%,100%{transform:translateY(0) rotate(-12deg)}
+            50%{transform:translateY(7px) rotate(-7deg)}
+          }
+          @keyframes halloweenFloatRight{
+            0%,100%{transform:translateY(0) rotate(7deg)}
+            50%{transform:translateY(9px) rotate(2deg)}
+          }
+
+          /* Icônes saisonnières dans les principales zones de l’app. */
+          html.season-halloween #tomorrow .my-next-panel h3::before{content:'🎃 ';}
+          html.season-halloween #tomorrow .collective-panel h3::before{content:'🦇 ';}
+          html.season-halloween #planning h1::before{content:'🕸️ ';}
+          html.season-halloween #planning h3::before{content:'🕯️ ';}
+          html.season-halloween #groups h1::before{content:'👻 ';}
+          html.season-halloween #groups h2::before{content:'🎃 ';}
+          html.season-halloween #history h1::before{content:'🦇 ';}
+          html.season-halloween .group-balance-heading h2::before{content:'🎃 ';}
+          html.season-halloween #history .history-grid h2::before{content:'🕯️ ';}
+          html.season-halloween .side-menu-head strong::before{content:'🕷️ ';}
+          html.season-halloween .settings-block h3::before{content:'🕸️ ';}
+
+          /* Grandes icônes décoratives dans les coins de quelques cartes clés. */
+          html.season-halloween .tomorrow-card,
+          html.season-halloween #planning>.card,
+          html.season-halloween #groups>.grid>.card,
+          html.season-halloween .group-balance-shell{
+            position:relative;
+            overflow:hidden;
+          }
+          html.season-halloween .tomorrow-card::after,
+          html.season-halloween #planning>.card::after,
+          html.season-halloween #groups>.grid>.card:first-child::after,
+          html.season-halloween .group-balance-shell::after{
+            position:absolute;
+            pointer-events:none;
+            user-select:none;
+            opacity:.13;
+            line-height:1;
+            z-index:0;
+          }
+          html.season-halloween .tomorrow-card::after{
+            content:'🎃';right:12px;top:13px;font-size:54px;transform:rotate(7deg);
+          }
+          html.season-halloween #planning>.card::after{
+            content:'🕸️';right:8px;top:10px;font-size:62px;transform:rotate(8deg);
+          }
+          html.season-halloween #groups>.grid>.card:first-child::after{
+            content:'👻';right:14px;top:15px;font-size:49px;transform:rotate(5deg);
+          }
+          html.season-halloween .group-balance-shell::after{
+            content:'🦇';right:14px;top:13px;font-size:52px;transform:rotate(-11deg);
+          }
+          html.season-halloween .tomorrow-card>* ,
+          html.season-halloween #planning>.card>* ,
+          html.season-halloween #groups>.grid>.card:first-child>* ,
+          html.season-halloween .group-balance-shell>*{
+            position:relative;
+            z-index:1;
+          }
+
+          /* Quelques touches orange plus franches pour rendre la saison évidente. */
+          html.season-halloween .tomorrow-card,
+          html.season-halloween .group-balance-shell,
+          html.season-halloween #planning>.card,
+          html.season-halloween #groups>.grid>.card:first-child{
+            border-top:3px solid rgba(211,117,36,.72);
+          }
+          html.season-halloween .group-balance-code,
+          html.season-halloween .next-date{
+            text-shadow:0 1px 0 rgba(255,255,255,.36);
+          }
+
+          html.season-halloween[data-theme="dark"] .compact-header::after{
+            border-top-color:rgba(239,165,93,.19);
+          }
+          html.season-halloween[data-theme="dark"] .tomorrow-card::after,
+          html.season-halloween[data-theme="dark"] #planning>.card::after,
+          html.season-halloween[data-theme="dark"] #groups>.grid>.card:first-child::after,
+          html.season-halloween[data-theme="dark"] .group-balance-shell::after{
+            opacity:.19;
+          }
+          html.season-halloween[data-theme="dark"] .group-balance-code,
+          html.season-halloween[data-theme="dark"] .next-date{
+            text-shadow:none;
+          }
+
+          @media(max-width:520px){
+            html.season-halloween .compact-header::after{font-size:18px;letter-spacing:3px;margin-top:5px}
+            html.season-halloween body::before{left:3px;top:116px;font-size:23px;opacity:.40}
+            html.season-halloween body::after{right:3px;top:139px;font-size:21px;opacity:.40}
+            html.season-halloween .tomorrow-card::after{font-size:43px}
+            html.season-halloween #planning>.card::after{font-size:49px}
+            html.season-halloween #groups>.grid>.card:first-child::after{font-size:40px}
+            html.season-halloween .group-balance-shell::after{font-size:43px}
+          }
+          @media(prefers-reduced-motion:reduce){
+            html.season-halloween body::before,
+            html.season-halloween body::after{animation:none}
+          }
+          '''
+          p.write_text(s+skin,encoding='utf-8')
+
+          # TEST config version only.
+          p=Path('public-config.js')
+          s=p.read_text(encoding='utf-8')
+          if s.count('version: "4.8.0-beta.9"')!=1:
+              raise SystemExit('Version public-config TEST inattendue')
+          s=s.replace('// 4.8 beta.9 — skin Halloween léger et élégant, automatique jusqu’au 31/10/2026',
+                      '// 4.8 beta.10 — skin Halloween plus visible avec davantage d’icônes, toujours automatique',1)
+          s=s.replace('version: "4.8.0-beta.9"','version: "4.8.0-beta.10"',1)
+          p.write_text(s,encoding='utf-8')
+
+          # PWA cache refresh.
+          p=Path('service-worker.js')
+          s=p.read_text(encoding='utf-8')
+          old="const CACHE='covoiturage-4.8.0-beta.9';"
+          if s.count(old)!=1:
+              raise SystemExit('Cache service worker TEST inattendu')
+          s=s.replace(old,"const CACHE='covoiturage-4.8.0-beta.10';",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Syntax and regression checks
+        run: |
+          set -euo pipefail
+          node --check app.js
+          node --check public-config.js
+          node --check service-worker.js
+          node --check quota-core.mjs
+          node --test tests/quota-core.test.mjs
+          git diff --check
+
+      - name: Verify richer Halloween layer and TEST isolation
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const assert=require('assert/strict');
+          const app=fs.readFileSync('app.js','utf8');
+          const css=fs.readFileSync('styles.css','utf8');
+          const cfg=fs.readFileSync('public-config.js','utf8');
+          const sw=fs.readFileSync('service-worker.js','utf8');
+
+          assert(app.includes("APP_VERSION = ENV.version || '4.8.0-beta.10'"));
+          assert(app.includes("HALLOWEEN_SKIN_END = '2026-10-31'"));
+          assert(css.includes('HALLOWEEN TEST beta10'));
+          assert(css.includes("content:'🦇  🎃  👻  🕸️  🦇'"));
+          assert(css.includes("#planning h1::before{content:'🕸️ ';}"));
+          assert(css.includes("#groups h1::before{content:'👻 ';}"));
+          assert(css.includes("#history h1::before{content:'🦇 ';}"));
+          assert(css.includes(".tomorrow-card::after"));
+          assert(css.includes('prefers-reduced-motion:reduce'));
+          assert(cfg.includes('environment: "test"'));
+          assert(cfg.includes('projectId: "team-tool-test-data"'));
+          assert(cfg.includes('version: "4.8.0-beta.10"'));
+          assert(!cfg.includes('projectId: "team-tool-data"'));
+          assert(sw.includes("covoiturage-4.8.0-beta.10"));
+          console.log('Richer Halloween skin beta10: OK');
+          NODE
+
+      - name: Commit TEST beta10
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js styles.css public-config.js service-worker.js
+          git commit -m 'style(test): richer Halloween skin beta10'
+          git push origin HEAD:main
+
+      - name: Smoke test deployed TEST site
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://wm2800im.github.io/team-tool-test'
+          ok=0
+          for i in $(seq 1 30); do
+            stamp=$(date +%s)
+            if curl -fsSL --max-time 15 "$BASE/public-config.js?v=$stamp" -o /tmp/live-config.js \
+              && curl -fsSL --max-time 15 "$BASE/app.js?v=$stamp" -o /tmp/live-app.js \
+              && curl -fsSL --max-time 15 "$BASE/styles.css?v=$stamp" -o /tmp/live-styles.css \
+              && curl -fsSL --max-time 15 "$BASE/service-worker.js?v=$stamp" -o /tmp/live-sw.js \
+              && grep -q 'version: "4.8.0-beta.10"' /tmp/live-config.js \
+              && grep -q 'projectId: "team-tool-test-data"' /tmp/live-config.js \
+              && grep -q 'HALLOWEEN_SKIN_END' /tmp/live-app.js \
+              && grep -q 'HALLOWEEN TEST beta10' /tmp/live-styles.css \
+              && grep -q 'covoiturage-4.8.0-beta.10' /tmp/live-sw.js; then
+                ok=1; break
+            fi
+            echo "Pages TEST pas encore à jour (tentative $i/30)"
+            sleep 10
+          done
+          test "$ok" = 1
+          echo 'Smoke test TEST Halloween beta10: OK'
