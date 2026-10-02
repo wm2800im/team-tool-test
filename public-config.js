@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// 4.8 beta.9 — skin Halloween léger et élégant, automatique jusqu’au 31/10/2026
+// 4.8 beta.10 — skin Halloween plus visible avec davantage d’icônes, toujours automatique
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.8.0-beta.9",
+  version: "4.8.0-beta.10",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",

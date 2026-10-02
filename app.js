@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.9';
+const APP_VERSION = ENV.version || '4.8.0-beta.10';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);

@@ -508,3 +508,150 @@ html.season-halloween[data-theme="dark"] .kpi strong{
 html.season-halloween[data-theme="dark"] .loading-overlay{
   background:rgba(20,17,22,.96);
 }
+
+
+/* HALLOWEEN TEST beta10 — plus visible, davantage d’icônes, sans toucher à la logique */
+html.season-halloween .compact-header::after{
+  content:'🦇  🎃  👻  🕸️  🦇';
+  display:block;
+  text-align:center;
+  font-size:20px;
+  line-height:1;
+  letter-spacing:7px;
+  margin-top:7px;
+  padding-top:5px;
+  border-top:1px solid rgba(205,126,53,.20);
+  filter:drop-shadow(0 1px 1px rgba(50,24,45,.12));
+}
+html.season-halloween .test-banner::after{
+  content:'  ·  🎃  HALLOWEEN  👻  🦇';
+  color:#ffc27c;
+  font-weight:950;
+  letter-spacing:.35px;
+}
+
+/* Deux décorations flottantes en bord d’écran : visibles mais non interactives. */
+html.season-halloween body::before,
+html.season-halloween body::after{
+  position:fixed;
+  z-index:28;
+  pointer-events:none;
+  user-select:none;
+  opacity:.58;
+  filter:drop-shadow(0 2px 3px rgba(51,26,47,.15));
+}
+html.season-halloween body::before{
+  content:'🦇';
+  left:10px;
+  top:124px;
+  font-size:31px;
+  transform:rotate(-12deg);
+  animation:halloweenFloatLeft 5.4s ease-in-out infinite;
+}
+html.season-halloween body::after{
+  content:'🕷️';
+  right:10px;
+  top:150px;
+  font-size:27px;
+  animation:halloweenFloatRight 6.2s ease-in-out infinite;
+}
+@keyframes halloweenFloatLeft{
+  0%,100%{transform:translateY(0) rotate(-12deg)}
+  50%{transform:translateY(7px) rotate(-7deg)}
+}
+@keyframes halloweenFloatRight{
+  0%,100%{transform:translateY(0) rotate(7deg)}
+  50%{transform:translateY(9px) rotate(2deg)}
+}
+
+/* Icônes saisonnières dans les principales zones de l’app. */
+html.season-halloween #tomorrow .my-next-panel h3::before{content:'🎃 ';}
+html.season-halloween #tomorrow .collective-panel h3::before{content:'🦇 ';}
+html.season-halloween #planning h1::before{content:'🕸️ ';}
+html.season-halloween #planning h3::before{content:'🕯️ ';}
+html.season-halloween #groups h1::before{content:'👻 ';}
+html.season-halloween #groups h2::before{content:'🎃 ';}
+html.season-halloween #history h1::before{content:'🦇 ';}
+html.season-halloween .group-balance-heading h2::before{content:'🎃 ';}
+html.season-halloween #history .history-grid h2::before{content:'🕯️ ';}
+html.season-halloween .side-menu-head strong::before{content:'🕷️ ';}
+html.season-halloween .settings-block h3::before{content:'🕸️ ';}
+
+/* Grandes icônes décoratives dans les coins de quelques cartes clés. */
+html.season-halloween .tomorrow-card,
+html.season-halloween #planning>.card,
+html.season-halloween #groups>.grid>.card,
+html.season-halloween .group-balance-shell{
+  position:relative;
+  overflow:hidden;
+}
+html.season-halloween .tomorrow-card::after,
+html.season-halloween #planning>.card::after,
+html.season-halloween #groups>.grid>.card:first-child::after,
+html.season-halloween .group-balance-shell::after{
+  position:absolute;
+  pointer-events:none;
+  user-select:none;
+  opacity:.13;
+  line-height:1;
+  z-index:0;
+}
+html.season-halloween .tomorrow-card::after{
+  content:'🎃';right:12px;top:13px;font-size:54px;transform:rotate(7deg);
+}
+html.season-halloween #planning>.card::after{
+  content:'🕸️';right:8px;top:10px;font-size:62px;transform:rotate(8deg);
+}
+html.season-halloween #groups>.grid>.card:first-child::after{
+  content:'👻';right:14px;top:15px;font-size:49px;transform:rotate(5deg);
+}
+html.season-halloween .group-balance-shell::after{
+  content:'🦇';right:14px;top:13px;font-size:52px;transform:rotate(-11deg);
+}
+html.season-halloween .tomorrow-card>* ,
+html.season-halloween #planning>.card>* ,
+html.season-halloween #groups>.grid>.card:first-child>* ,
+html.season-halloween .group-balance-shell>*{
+  position:relative;
+  z-index:1;
+}
+
+/* Quelques touches orange plus franches pour rendre la saison évidente. */
+html.season-halloween .tomorrow-card,
+html.season-halloween .group-balance-shell,
+html.season-halloween #planning>.card,
+html.season-halloween #groups>.grid>.card:first-child{
+  border-top:3px solid rgba(211,117,36,.72);
+}
+html.season-halloween .group-balance-code,
+html.season-halloween .next-date{
+  text-shadow:0 1px 0 rgba(255,255,255,.36);
+}
+
+html.season-halloween[data-theme="dark"] .compact-header::after{
+  border-top-color:rgba(239,165,93,.19);
+}
+html.season-halloween[data-theme="dark"] .tomorrow-card::after,
+html.season-halloween[data-theme="dark"] #planning>.card::after,
+html.season-halloween[data-theme="dark"] #groups>.grid>.card:first-child::after,
+html.season-halloween[data-theme="dark"] .group-balance-shell::after{
+  opacity:.19;
+}
+html.season-halloween[data-theme="dark"] .group-balance-code,
+html.season-halloween[data-theme="dark"] .next-date{
+  text-shadow:none;
+}
+
+@media(max-width:520px){
+  html.season-halloween .compact-header::after{font-size:18px;letter-spacing:3px;margin-top:5px}
+  html.season-halloween body::before{left:3px;top:116px;font-size:23px;opacity:.40}
+  html.season-halloween body::after{right:3px;top:139px;font-size:21px;opacity:.40}
+  html.season-halloween .tomorrow-card::after{font-size:43px}
+  html.season-halloween #planning>.card::after{font-size:49px}
+  html.season-halloween #groups>.grid>.card:first-child::after{font-size:40px}
+  html.season-halloween .group-balance-shell::after{font-size:43px}
+}
+@media(prefers-reduced-motion:reduce){
+  html.season-halloween body::before,
+  html.season-halloween body::after{animation:none}
+}
