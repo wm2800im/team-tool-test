@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.8';
+const APP_VERSION = ENV.version || '4.8.0-beta.9';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -211,6 +211,16 @@ const appTodayISO = () => {
   const n=appNowParts();
   return `${n.year}-${String(n.month).padStart(2,'0')}-${String(n.day).padStart(2,'0')}`;
 };
+const HALLOWEEN_SKIN_START = '2026-10-01';
+const HALLOWEEN_SKIN_END = '2026-10-31';
+const halloweenSkinActive = ds => ds >= HALLOWEEN_SKIN_START && ds <= HALLOWEEN_SKIN_END;
+function applySeasonalSkin(){
+  const active=halloweenSkinActive(appTodayISO());
+  document.documentElement.classList.toggle('season-halloween',active);
+  const themeMeta=document.querySelector('meta[name="theme-color"]');
+  if(themeMeta)themeMeta.setAttribute('content',active?'#4b2948':'#203a5f');
+}
+applySeasonalSkin();
 const todayISO = () => appTodayISO();
 const isWeekend = d => d.getDay()===0 || d.getDay()===6;
 function easterSunday(year){
