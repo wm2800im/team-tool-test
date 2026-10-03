@@ -655,3 +655,77 @@ html.season-halloween[data-theme="dark"] .next-date{
   html.season-halloween body::before,
   html.season-halloween body::after{animation:none}
 }
+
+
+/* HALLOWEEN TEST beta11 — balayages diagonaux très visibles */
+.halloween-sweepers{display:none}
+html.season-halloween .halloween-sweepers{
+  display:block;
+  position:fixed;
+  inset:0;
+  z-index:118;
+  pointer-events:none;
+  overflow:hidden;
+  user-select:none;
+}
+html.season-halloween .halloween-sweeper{
+  position:absolute;
+  left:0;
+  top:0;
+  opacity:0;
+  font-size:clamp(72px,12vw,128px);
+  line-height:1;
+  will-change:transform,opacity;
+  filter:drop-shadow(0 12px 16px rgba(31,12,29,.30));
+}
+
+/* Un balayage toutes les ~7 secondes : fantôme, citrouille, araignée. */
+html.season-halloween .halloween-ghost{
+  animation:halloweenGhostSweep 21s linear infinite;
+}
+html.season-halloween .halloween-pumpkin{
+  animation:halloweenPumpkinSweep 21s linear infinite 7s;
+}
+html.season-halloween .halloween-spider{
+  animation:halloweenSpiderSweep 21s linear infinite 14s;
+}
+
+@keyframes halloweenGhostSweep{
+  0%,2%{transform:translate(-22vw,-22vh) rotate(-18deg) scale(.82);opacity:0}
+  4%{opacity:.94}
+  15%{transform:translate(44vw,43vh) rotate(6deg) scale(1.16);opacity:.96}
+  27%{transform:translate(112vw,108vh) rotate(18deg) scale(.94);opacity:.88}
+  30%,100%{transform:translate(112vw,108vh) rotate(18deg) scale(.94);opacity:0}
+}
+@keyframes halloweenPumpkinSweep{
+  0%,2%{transform:translate(112vw,-18vh) rotate(22deg) scale(.80);opacity:0}
+  4%{opacity:.96}
+  15%{transform:translate(48vw,46vh) rotate(-6deg) scale(1.24);opacity:.98}
+  27%{transform:translate(-24vw,110vh) rotate(-24deg) scale(.92);opacity:.90}
+  30%,100%{transform:translate(-24vw,110vh) rotate(-24deg) scale(.92);opacity:0}
+}
+@keyframes halloweenSpiderSweep{
+  0%,2%{transform:translate(-18vw,108vh) rotate(-28deg) scale(.78);opacity:0}
+  4%{opacity:.94}
+  15%{transform:translate(48vw,47vh) rotate(10deg) scale(1.14);opacity:.97}
+  27%{transform:translate(112vw,-24vh) rotate(30deg) scale(.90);opacity:.88}
+  30%,100%{transform:translate(112vw,-24vh) rotate(30deg) scale(.90);opacity:0}
+}
+
+/* Court halo derrière l’emoji pour qu’il reste visible sur les cartes claires ou sombres. */
+html.season-halloween .halloween-sweeper::after{
+  content:'';
+  position:absolute;
+  inset:12% 4%;
+  z-index:-1;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(255,151,60,.20),rgba(91,49,87,.06) 52%,transparent 72%);
+  filter:blur(8px);
+}
+
+@media(max-width:520px){
+  html.season-halloween .halloween-sweeper{font-size:clamp(78px,24vw,112px)}
+}
+@media(prefers-reduced-motion:reduce){
+  html.season-halloween .halloween-sweeper{animation-duration:42s}
+}
