@@ -1234,23 +1234,46 @@ function fullyConfirmedPendingGroup(date,members){
   return true;
 }
 function pendingConfirmedGroups(date,availablePeople){
-  let bestGroups=[],bestAssigned=-1,bestImperatives=-1,bestGroupCount=Infinity,bestKey='';
+  const accepted=acceptedImperativePairs(date,availablePeople);
+  let bestGroups=[],bestMissed=Infinity,bestAssigned=-1,bestImperatives=-1,bestGroupCount=Infinity,bestKey='';
   for(const part of partitionPeople(availablePeople)){
     const groups=part.filter(g=>fullyConfirmedPendingGroup(date,g));
+    const missed=unsatisfiedAcceptedPairs(groups,accepted);
     const assigned=canonical(groups.flat());
     const imperativeCount=assigned.filter(p=>getAvail(date,p)?.status==='time').length;
     const key=groups.map(g=>canonical(g).join('|')).sort().join('||');
-    const better=assigned.length>bestAssigned ||
-      (assigned.length===bestAssigned&&imperativeCount>bestImperatives) ||
-      (assigned.length===bestAssigned&&imperativeCount===bestImperatives&&groups.length<bestGroupCount) ||
-      (assigned.length===bestAssigned&&imperativeCount===bestImperatives&&groups.length===bestGroupCount&&(!bestKey||key<bestKey));
-    if(better){bestGroups=groups.map(g=>canonical(g));bestAssigned=assigned.length;bestImperatives=imperativeCount;bestGroupCount=groups.length;bestKey=key;}
+    const better=missed<bestMissed ||
+      (missed===bestMissed&&assigned.length>bestAssigned) ||
+      (missed===bestMissed&&assigned.length===bestAssigned&&imperativeCount>bestImperatives) ||
+      (missed===bestMissed&&assigned.length===bestAssigned&&imperativeCount===bestImperatives&&groups.length<bestGroupCount) ||
+      (missed===bestMissed&&assigned.length===bestAssigned&&imperativeCount===bestImperatives&&groups.length===bestGroupCount&&(!bestKey||key<bestKey));
+    if(better){bestGroups=groups.map(g=>canonical(g));bestMissed=missed;bestAssigned=assigned.length;bestImperatives=imperativeCount;bestGroupCount=groups.length;bestKey=key;}
   }
   const assigned=new Set(bestGroups.flat());
   const groups=bestGroups.map(g=>{const sug=driverSuggestion(date,g);return{id:`auto-${groupCode(g)}`,members:g,driver:sug.candidates[0]||g[0]};});
   return {groups,singles:availablePeople.filter(p=>!assigned.has(p))};
 }
 // PENDING_GROUPS_LOGIC_END
+// Les reponses "oui" sont des engagements de covoiturer avec la personne
+// qui a declare l'imperatif, pas de simples compatibilites facultatives.
+function acceptedImperativePairs(date,people){
+  const pairs=[];
+  for(const owner of people){
+    const v=getAvail(date,owner);
+    if(v?.status!=='time')continue;
+    for(const responder of people){
+      if(owner===responder)continue;
+      const c=getCompat(date,owner,responder);
+      if(c?.ownerTime===v.time&&c.response==='yes')pairs.push([owner,responder]);
+    }
+  }
+  return pairs;
+}
+function unsatisfiedAcceptedPairs(groups,accepted){
+  const positions=new Map();
+  groups.forEach((members,i)=>members.forEach(p=>positions.set(p,i)));
+  return accepted.filter(([owner,responder])=>!positions.has(owner)||!positions.has(responder)||positions.get(owner)!==positions.get(responder)).length;
+}
 function autoSuggestedGroups(date){
   const availablePeople=PEOPLE.filter(p=>isAvailable(getAvail(date,p))); if(availablePeople.length<2)return {groups:[],singles:availablePeople,pending:false,unknown:[],rejected:[]};
   const state=globalCompatibilityState(date,availablePeople);
@@ -1261,10 +1284,16 @@ function autoSuggestedGroups(date){
     return {groups:confirmed.groups,singles:confirmed.singles,pending:true,unknown:state.unknown,rejected:state.rejected};
   }
   const order=[...availablePeople].sort((a,b)=>{const av=getAvail(date,a),bv=getAvail(date,b);if(av?.status==='time'&&bv?.status!=='time')return -1;if(bv?.status==='time'&&av?.status!=='time')return 1;if(av?.status==='time'&&bv?.status==='time')return (av.time||'').localeCompare(bv.time||'');return label(a).localeCompare(label(b),'fr');});
-  let best=null,bestScore=Infinity; for(const part of partitionPeople(order)){
+  const accepted=acceptedImperativePairs(date,availablePeople);
+  let best=null,bestMissed=Infinity,bestScore=Infinity;
+  for(const part of partitionPeople(order)){
     let invalid=false; for(const g of part){for(let i=0;i<g.length;i++)for(let j=i+1;j<g.length;j++){if(pairExplicitlyIncompatible(date,g[i],g[j]))invalid=true;}}
-    if(invalid)continue; const singles=part.filter(g=>g.length===1).length,score=singles*100+part.length*10;
-    if(score<bestScore){bestScore=score;best=part;}
+    if(invalid)continue;
+    // Priorite absolue aux "oui" vers un imperatif : on accepte un conducteur seul
+    // plutot que de separer deux personnes qui ont convenu de partir ensemble.
+    const missed=unsatisfiedAcceptedPairs(part,accepted);
+    const singles=part.filter(g=>g.length===1).length,score=singles*100+part.length*10;
+    if(missed<bestMissed||(missed===bestMissed&&score<bestScore)){bestMissed=missed;bestScore=score;best=part;}
   }
   const part=best||order.map(p=>[p]); const singles=part.filter(g=>g.length===1).flat(); const groups=part.filter(g=>g.length>=2).map(g=>{const sug=driverSuggestion(date,g);return{id:`auto-${groupCode(g)}`,members:canonical(g),driver:sug.candidates[0]||canonical(g)[0]};}); return {groups,singles,pending:false,unknown:[],rejected:state.rejected};
 }
