@@ -14,7 +14,7 @@ import {
 } from './quota-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
-const APP_VERSION = ENV.version || '4.8.0-beta.11';
+const APP_VERSION = ENV.version || '4.8.1';
 const IS_TEST = ENV.environment === 'test';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -211,16 +211,6 @@ const appTodayISO = () => {
   const n=appNowParts();
   return `${n.year}-${String(n.month).padStart(2,'0')}-${String(n.day).padStart(2,'0')}`;
 };
-const HALLOWEEN_SKIN_START = '2026-10-01';
-const HALLOWEEN_SKIN_END = '2026-10-31';
-const halloweenSkinActive = ds => ds >= HALLOWEEN_SKIN_START && ds <= HALLOWEEN_SKIN_END;
-function applySeasonalSkin(){
-  const active=halloweenSkinActive(appTodayISO());
-  document.documentElement.classList.toggle('season-halloween',active);
-  const themeMeta=document.querySelector('meta[name="theme-color"]');
-  if(themeMeta)themeMeta.setAttribute('content',active?'#4b2948':'#203a5f');
-}
-applySeasonalSkin();
 const todayISO = () => appTodayISO();
 const isWeekend = d => d.getDay()===0 || d.getDay()===6;
 function easterSunday(year){
@@ -1281,10 +1271,15 @@ function autoSuggestedGroups(date){
 function proposalForDate(date){
   const saved=currentPlan(date);
   if(saved.length){
-    const all=canonical(saved.flatMap(g=>g.members)); const state=globalCompatibilityState(date,all);
-    return{groups:saved,singles:[],saved:true,pending:state.pending,unknown:state.unknown,rejected:state.rejected};
+    const members=canonical(saved.flatMap(g=>g.members));
+    const groupState=globalCompatibilityState(date,members);
+    // L'affichage des impératifs concerne tous les présents, même hors du groupe manuel.
+    const presentPeople=PEOPLE.filter(p=>isAvailable(getAvail(date,p)));
+    const allState=globalCompatibilityState(date,presentPeople);
+    return {groups:saved,singles:[],saved:true,pending:groupState.pending,
+      unknown:allState.unknown,rejected:allState.rejected,groupRejected:groupState.rejected};
   }
-  const auto=autoSuggestedGroups(date);return{...auto,saved:false};
+  const auto=autoSuggestedGroups(date);return{...auto,saved:false,groupRejected:[]};
 }
 function normalizedGroupSignature(groups){return groups.map(g=>`${canonical(g.members||g.participants||[]).join('|')}>${g.driver||g.driverId||''}`).sort().join('||');}
 function validatedSummaryHTML(ds){
@@ -1447,28 +1442,41 @@ async function deleteDelleTrip(ds){
 }
 // DELLE_PRIVATE_END
 
+function imperativeNoticeHtml(proposal){
+  const rejected=proposal.rejected||[],unknown=proposal.unknown||[];
+  if(!rejected.length&&!unknown.length)return '';
+  const inGroupRefusal=!!proposal.groupRejected?.length;
+  const title=proposal.pending?'⏳ Répartition en attente':inGroupRefusal?'❌ Impératif incompatible':'⏱ Réponses aux impératifs';
+  const pendingLines=unknown.map(x=>`<div>⏳ ${label(x.responder)} doit répondre à ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join('');
+  const rejectedLines=rejected.map(x=>`<div>❌ ${label(x.responder)} · ${timeLabel(x.time)} refusé</div>`).join('');
+  // Une répartition manuelle n'est jamais recalculée automatiquement.
+  const hint=proposal.pending&&!proposal.saved?'<div class="small">La proposition finale sera recalculée après les réponses.</div>':'';
+  return `<div class="proposal-pending"><strong>${title}</strong>${pendingLines}${rejectedLines}${hint}</div>`;
+}
+
 function renderQuickProposal(ds){
   const box=$('quickProposal'); if(!box)return;
   if(!tripDaysReady){box.innerHTML='<div class="empty compact-empty">Calcul de la proposition…</div>';return;}
   const proposal=proposalForDate(ds),gs=proposal.groups,validated=tripGroupsForDate(ds);
-  if(!gs.length&&!proposal.pending){box.innerHTML=validatedSummaryHTML(ds)||'<div class="empty compact-empty">Pas encore de groupe proposé.</div>';return;}
+  if(!gs.length&&!proposal.pending&&!proposal.unknown?.length&&!proposal.rejected?.length){box.innerHTML=validatedSummaryHTML(ds)||'<div class="empty compact-empty">Pas encore de groupe proposé.</div>';return;}
   const sameAsValidated=validated.length>0 && normalizedGroupSignature(gs)===normalizedGroupSignature(validated);
   const validationGate=tripValidationAvailability(ds);
+  const groupHasRefusal=!!proposal.groupRejected?.length;
+  const blockValidation=proposal.pending||groupHasRefusal;
   const groupsHtml=gs.length?gs.map((g,i)=>{
     const sug=driverSuggestion(ds,g.members),suggested=sug.candidates.length>1?`Égalité : ${sug.candidates.map(label).join(' / ')}`:`Suggéré : ${label(sug.candidates[0])}`,vg=validatedGroupForPlan(ds,g),done=isPlannedGroupValidated(ds,g),action=done?'✓ Groupe validé':vg?'↻ Mettre à jour':'✓ Valider ce groupe';
+    const thisGroupBlocked=unknownCompatibilities(ds,g.members).length>0||explicitIncompatibilities(ds,g.members).length>0;
     return `<div class="proposal-group-simple ${i?'with-separator':''}">
       <div class="proposal-main-line"><strong>${gs.length>1?`Groupe ${i+1} · `:''}${g.members.map(label).join(' · ')}</strong><span class="proposal-suggested">${suggested}</span></div>
       <div class="proposal-counter-line">Compteurs : ${canonical(g.members).map(p=>`${label(p)} ${sug.counts[p]}`).join(' · ')}</div>
       <div class="proposal-driver-row"><label>Conducteur réel</label><select class="quick-driver input" data-id="${g.id}" ${proposal.pending&&!proposal.saved?'disabled':''}>${canonical(g.members).map(p=>`<option value="${p}" ${g.driver===p?'selected':''}>${label(p)}</option>`).join('')}</select></div>
-      ${gs.length>1?`<div class="quick-group-actions"><button class="btn smallbtn quick-validate-one" data-id="${g.id}" ${(done||proposal.pending||!validationGate.allowed)?'disabled':''}>${action}</button><button class="btn secondary smallbtn quick-modify-one" data-id="${g.id}" type="button">Modifier ce groupe</button></div>`:''}
+      ${gs.length>1?`<div class="quick-group-actions"><button class="btn smallbtn quick-validate-one" data-id="${g.id}" ${(done||thisGroupBlocked||!validationGate.allowed)?'disabled':''}>${action}</button><button class="btn secondary smallbtn quick-modify-one" data-id="${g.id}" type="button">Modifier ce groupe</button></div>`:''}
     </div>`;
   }).join(''):'<div class="empty compact-empty">Aucun groupe confirmé pour l’instant.</div>';
-  const rejectedHtml=proposal.rejected?.length?proposal.rejected.map(x=>`<div>❌ ${label(x.responder)} ne peut pas partir avec ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join(''):'';
-  const unknownHtml=proposal.unknown?.length?proposal.unknown.map(x=>`<div>⏳ ${label(x.responder)} doit répondre à ${label(x.owner)} · ${timeLabel(x.time)}</div>`).join(''):'';
-  const pendingHtml=proposal.pending?`<div class="proposal-pending"><strong>⏳ Répartition en attente</strong>${rejectedHtml}${unknownHtml}<div class="small">La proposition finale sera recalculée après les réponses.</div></div>`:'';
-  const proposalTitle=proposal.pending?'Covoiturage provisoire':'Covoiturage proposé';
+  const pendingHtml=imperativeNoticeHtml(proposal);
+  const proposalTitle=proposal.pending||proposal.unknown?.length?'Covoiturage provisoire':'Covoiturage proposé';
   const singlesLabel=proposal.pending?'Non placés pour l’instant':'Sans groupe';
-  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>${proposalTitle}</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${pendingHtml}${proposal.singles.length?`<div class="group-warning">${singlesLabel} : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${(sameAsValidated||proposal.pending||!validationGate.allowed)?'disabled':''}>${proposal.pending?'En attente des réponses':sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${!validationGate.allowed?`<div class="small muted">${validationGate.message}</div>`:''}${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
+  box.innerHTML=`<div class="proposal-shell ${sameAsValidated?'is-validated':''}"><div class="proposal-head"><h3>${proposalTitle}</h3>${proposal.saved?'<span class="small muted">modifié manuellement</span>':''}</div>${groupsHtml}${pendingHtml}${proposal.singles.length?`<div class="group-warning">${singlesLabel} : ${proposal.singles.map(label).join(', ')}</div>`:''}${validatedSummaryHTML(ds)}<div class="quick-actions"><button id="quickValidate" class="btn" ${(sameAsValidated||blockValidation||!validationGate.allowed)?'disabled':''}>${groupHasRefusal?'Impératif incompatible':proposal.pending?'En attente des réponses':sameAsValidated?'✓ Trajet validé':validated.length?'↻ Mettre à jour le trajet':`✓ Valider le${gs.length>1?'s':''} trajet${gs.length>1?'s':''}`}</button><button id="quickModify" class="btn secondary">Modifier</button></div>${!validationGate.allowed?`<div class="small muted">${validationGate.message}</div>`:''}${IS_TEST&&validated.length?'<button id="quickResetTest" class="test-reset-link" type="button">↺ Réinitialiser ce trajet TEST</button>':''}<div id="quickSaveState" class="small muted quick-save-state"></div></div>`;
   box.querySelectorAll('.quick-driver').forEach(sel=>sel.addEventListener('change',()=>{
     const current=proposalForDate(ds).groups.map(g=>({...g})); const target=current.find(g=>g.id===sel.dataset.id)||current.find(g=>groupCode(g.members)===sel.dataset.id.replace('auto-','')); if(!target)return; target.driver=sel.value;
     const savePromise=savePlan(ds,current); const state=$('quickSaveState'); if(state)state.textContent='Enregistrement du conducteur…';
@@ -1476,7 +1484,7 @@ function renderQuickProposal(ds){
   }));
   box.querySelectorAll('.quick-validate-one').forEach(btn=>btn.addEventListener('click',async()=>{const current=proposalForDate(ds).groups.map(g=>({...g}));const target=current.find(g=>g.id===btn.dataset.id)||current.find(g=>groupCode(g.members)===btn.dataset.id.replace('auto-',''));if(!target)return;btn.disabled=true;btn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation de ce groupe…';try{await validateSingleGroupForDate(ds,target,current);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}}));
   box.querySelectorAll('.quick-modify-one').forEach(btn=>btn.addEventListener('click',async()=>{btn.disabled=true;const state=$('quickSaveState');if(state)state.textContent='Ouverture de ce groupe…';try{await openGroupEditor(ds,btn.dataset.id);}catch(e){btn.disabled=false;alert(friendlyError(e));}}));
-  const validateBtn=$('quickValidate');if(validateBtn&&gs.length>1)validateBtn.style.display='none';if(validateBtn&&gs.length===1&&!sameAsValidated&&!proposal.pending&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
+  const validateBtn=$('quickValidate');if(validateBtn&&gs.length>1)validateBtn.style.display='none';if(validateBtn&&gs.length===1&&!sameAsValidated&&!blockValidation&&validationGate.allowed)validateBtn.addEventListener('click',async()=>{validateBtn.disabled=true;validateBtn.textContent='Enregistrement…';const state=$('quickSaveState');if(state)state.textContent='Validation du covoiturage…';try{await validateGroupsForDate(ds,proposalForDate(ds).groups);renderTomorrow();}catch(e){alert(friendlyError(e));renderTomorrow();}});
   const modifyBtn=$('quickModify');if(modifyBtn&&gs.length>1)modifyBtn.style.display='none';else if(modifyBtn)modifyBtn.addEventListener('click',async()=>{try{await openGroupEditor(ds,gs[0]?.id);}catch(e){alert(friendlyError(e));}});
   const resetBtn=$('quickResetTest');if(resetBtn)resetBtn.addEventListener('click',()=>resetTestTrip(ds));
 }
