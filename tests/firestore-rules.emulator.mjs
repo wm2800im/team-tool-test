@@ -3,7 +3,8 @@ import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {collection,doc,getDoc,getDocs,setDoc,updateDoc,deleteDoc} from 'firebase/firestore';
 let env;
-const date='2026-11-14',projectId='demo-teamtool-rules';
+const date='2026-11-14',projectId=process.env.TEAM_RULES_PROJECT || 'demo-teamtool-rules';
+const rulesFile=process.env.TEAM_RULES_FILE || 'firestore.rules.test.txt';
 const uuids={igor:'uid-igor',ludo:'uid-ludo',aurelien:'uid-aurelien',etienne:'uid-etienne'};
 const client=(who)=>env.authenticatedContext(uuids[who]).firestore();
 const ref=(db,path)=>doc(db,path);
@@ -12,7 +13,7 @@ const compat=(owner,pid)=>'compatibilities/'+date+'_'+owner+'_'+pid;
 before(async()=>{
   env=await initializeTestEnvironment({projectId,firestore:{
     host:'127.0.0.1',port:8080,
-    rules:readFileSync(new URL('../firestore.rules.test.txt',import.meta.url),'utf8')
+    rules:readFileSync(new URL('../'+rulesFile,import.meta.url),'utf8')
   }});
 });
 after(async()=>{if(env)await env.cleanup();});
