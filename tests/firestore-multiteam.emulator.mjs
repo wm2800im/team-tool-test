@@ -167,11 +167,12 @@ test('Répertoire global : l’équipe est immuable',async()=>{
 });
 test('Codes courts réservés atomiquement et jamais réattribués',async()=>{
   await assertSucceeds(setDoc(ref(ctx('igor'),'memberDirectory/nina'),{teamId:B}));
-  const batch=writeBatch(ctx('igor'));
-  batch.set(ref(ctx('igor'),at(B,'members','nina')),{
+  const admin=ctx('igor');
+  const batch=writeBatch(admin);
+  batch.set(ref(admin,at(B,'members','nina')),{
     firstName:'Nina',displayName:'Nina',shortCode:'N',active:true,role:'member'
   });
-  batch.set(ref(ctx('igor'),at(B,'shortCodes','N')),{memberId:'nina'});
+  batch.set(ref(admin,at(B,'shortCodes','N')),{memberId:'nina'});
   await assertSucceeds(batch.commit());
   await assertFails(setDoc(ref(ctx('igor'),at(B,'shortCodes','N')),{memberId:'alex'}));
   await assertFails(updateDoc(ref(ctx('igor'),at(B,'members','nina')),{shortCode:'Ni'}));
