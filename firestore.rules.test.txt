@@ -8,16 +8,71 @@ service cloud.firestore {
     function isAdmin(){ return isLinked() && myProfile() == 'igor'; }
     function validInvite(token,pid){ return exists(/databases/$(database)/documents/invitations/$(token)) && get(/databases/$(database)/documents/invitations/$(token)).data.active == true && get(/databases/$(database)/documents/invitations/$(token)).data.profileId == pid; }
     match /invitations/{token}{ allow get: if signedIn(); allow list,create,update,delete: if isAdmin(); }
-    match /deviceLinks/{uid}{ allow get: if signedIn() && request.auth.uid == uid; allow list: if isAdmin(); allow create: if signedIn() && request.auth.uid == uid && validInvite(request.resource.data.inviteToken,request.resource.data.profileId); allow delete: if signedIn() && (request.auth.uid == uid || isAdmin()); allow update: if false; }
+    match /deviceLinks/{uid}{
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['profileId','inviteToken','createdAt','userAgent'])
+        && request.resource.data.profileId is string
+        && request.resource.data.inviteToken is string
+        && validInvite(request.resource.data.inviteToken,request.resource.data.profileId);
+      allow update: if false;
+      allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
+    }
     match /profiles/{pid}{ allow read: if isLinked(); allow write: if isAdmin(); }
-    match /preferences/{pid}{ allow read: if isLinked(); allow write: if isAdmin() || (isLinked() && pid == myProfile()); }
-    match /pushTokens/{uid}{ allow read: if isAdmin() || (isLinked() && request.auth.uid == uid); allow create,update: if isLinked() && request.auth.uid == uid && request.resource.data.profileId == myProfile(); allow delete: if isAdmin() || (isLinked() && request.auth.uid == uid); }
+    match /preferences/{pid}{ allow read: if isLinked(); allow create,update,delete: if isLinked() && (pid == myProfile() || isAdmin()); }
+    match /pushTokens/{uid}{
+      allow get: if isLinked() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create,update: if isLinked() && request.auth.uid == uid && request.resource.data.profileId == myProfile();
+      allow delete: if isLinked() && (request.auth.uid == uid || isAdmin());
+    }
+    match /notificationRequests/{id}{ allow create,read: if isAdmin(); allow update,delete: if false; }
     match /config/{docId}{ allow read: if isLinked(); allow write: if isAdmin(); }
     match /legacyStatus/{docId}{ allow read: if isLinked(); allow write: if isAdmin(); }
-    match /availability/{docId}{ allow read: if isLinked(); allow write: if isAdmin() || (isLinked() && request.resource.data.profileId == myProfile()); }
-    match /compatibilities/{docId}{ allow read: if isLinked(); allow write: if isAdmin() || (isLinked() && request.resource.data.responderId == myProfile()); }
+    match /availability/{docId}{
+      allow read: if isLinked();
+      // L'administrateur TEST peut simuler tous les profils ; les autres restent limités au leur.
+      allow create: if isLinked()
+        && request.resource.data.date is string
+        && request.resource.data.profileId is string
+        && docId == request.resource.data.date + '_' + request.resource.data.profileId
+        && (isAdmin() || request.resource.data.profileId == myProfile());
+      allow update: if isLinked()
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.profileId == resource.data.profileId
+        && (isAdmin() || resource.data.profileId == myProfile());
+      allow delete: if isLinked()
+        && (isAdmin() || resource.data.profileId == myProfile());
+    }
+    match /compatibilities/{docId}{
+      allow read: if isLinked();
+      allow create: if isLinked()
+        && request.resource.data.date is string
+        && request.resource.data.ownerId is string
+        && request.resource.data.responderId is string
+        && docId == request.resource.data.date + '_' + request.resource.data.ownerId + '_' + request.resource.data.responderId
+        && (isAdmin() || request.resource.data.responderId == myProfile());
+      allow update: if isLinked()
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.responderId == resource.data.responderId
+        && (isAdmin() || resource.data.responderId == myProfile());
+      allow delete: if isLinked()
+        && (isAdmin() || resource.data.responderId == myProfile());
+    }
     match /plans/{date}{ allow read,write: if isLinked(); }
     match /tripDays/{date}{ allow read,write: if isLinked(); }
+    match /delleTrips/{date}{
+      allow read: if isLinked() && (myProfile() == 'igor' || myProfile() == 'ludo');
+      allow create,update: if isLinked()
+        && (myProfile() == 'igor' || myProfile() == 'ludo')
+        && request.resource.data.privatePair == 'igor_ludo'
+        && request.resource.data.destination == 'Delle'
+        && request.resource.data.driver in ['igor','ludo'];
+      allow delete: if isLinked() && (myProfile() == 'igor' || myProfile() == 'ludo');
+    }
     match /{document=**}{ allow read,write: if false; }
   }
 }
