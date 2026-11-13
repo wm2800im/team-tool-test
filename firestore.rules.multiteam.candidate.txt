@@ -179,10 +179,7 @@ service cloud.firestore {
           && request.resource.data.role in ['member','leader']
           && request.resource.data.active is bool
           && request.resource.data.shortCode is string
-          && request.resource.data.shortCode.matches('^[A-Z][a-z0-9]{0,7}
-  }
-}
-)
+          && request.resource.data.shortCode.matches('^[A-Z][a-z0-9]{0,7}$')
           && getAfter(/databases/$(database)/documents/memberDirectory/$(memberId)).data.teamId == teamId
           && getAfter(/databases/$(database)/documents/teams/$(teamId)/shortCodes/$(request.resource.data.shortCode)).data.memberId == memberId;
         allow update: if isPlatformAdmin()
@@ -196,10 +193,7 @@ service cloud.firestore {
         allow create: if isPlatformAdmin()
           && request.resource.data.keys().hasOnly(['memberId'])
           && request.resource.data.memberId is string
-          && code.matches('^[A-Z][a-z0-9]{0,7}
-  }
-}
-)
+          && code.matches('^[A-Z][a-z0-9]{0,7}$')
           && getAfter(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId)).data.shortCode == code;
         allow update,delete: if false; // réservation permanente, même après départ
       }
