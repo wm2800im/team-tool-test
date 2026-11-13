@@ -1,9 +1,9 @@
 // CONFIGURATION TEST — projet Firebase TEST
-// Base PROD 4.8.1 + regroupement prioritaire des réponses Oui aux impératifs (TEST uniquement)
+// Base métier PROD 4.8.3 ; identité et interface réservées à TEST.
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.8.1-test.2",
+  version: "4.8.3-test.1",
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
@@ -126,7 +126,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
           <div class="small muted">Si les notifications sont activées, un rappel peut être envoyé à 20h quand le prochain jour travaillé n’est pas encore renseigné.</div>
         </div>
 
-        <div class="help-test-note"><strong>🧪 Version TEST :</strong> la validation est volontairement libre afin de pouvoir faire des démonstrations sans attendre l’heure réelle.</div>
+        <div class="help-test-note"><strong>🧪 Version TEST :</strong> la contrainte horaire de validation est assouplie pour les démonstrations, mais les contrôles des disponibilités et impératifs restent actifs.</div>
       </div>
     </details>
   `;
