@@ -47,7 +47,10 @@ function nameStem(name){
 }
 export function nextShortCode(firstName,usedCodes){
   const stem=nameStem(firstName);
-  const used=new Set([...usedCodes].map(code=>validateShortCode(code).toLowerCase()));
+  const used=new Set([...usedCodes].map(code=>{
+    ensure(typeof code==='string'&&/^[a-z][a-z0-9]{0,7}$/i.test(code),'Code réservé invalide');
+    return code.toLowerCase();
+  }));
   for(let length=1;length<=stem.length;length++){
     const code=stem.slice(0,length);
     if(!used.has(code.toLowerCase()))return code;
