@@ -5,13 +5,14 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, getDoc, getDocFromServer, getDocs, setDoc, deleteDoc, updateDoc, writeBatch, runTransaction,
+  collection, doc, getDoc, getDocFromServer, getDocs, getDocsFromServer, setDoc, deleteDoc, updateDoc, writeBatch, runTransaction, Timestamp,
   onSnapshot, serverTimestamp, query, where, documentId
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import {
   HISTORY_LIVE_START, makeArchiveBaseline, splitBaselineParts, combineBaselineParts,
   isValidBaseline, selectFreshBaseline, applyArchiveBaseline, replaceLiveEntries
 } from './quota-core.mjs';
+import {SNAPSHOT_SCHEMA,SNAPSHOT_COLLECTIONS,encodeSnapshotValue,decodeSnapshotValue,validateSnapshot} from './snapshot-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
 const APP_VERSION = ENV.version || '4.8.1';
@@ -485,7 +486,7 @@ function initStaticUI(){
   $('aboutToggle').addEventListener('click',()=>{const details=$('aboutDetails');const open=details.style.display!=='none';details.style.display=open?'none':'block';$('aboutToggle').classList.toggle('open',!open);});
   $('donateBtn').addEventListener('click',()=>{const el=$('coffeeThanks');if(el){el.style.display='block';setTimeout(()=>{el.style.display='none';},3500);}});
   $('notificationsToggle').addEventListener('change',toggleNotifications); $('localNotificationTestBtn')?.addEventListener('click',testLocalNotification); $('copyFcmTokenBtn')?.addEventListener('click',copyFcmToken); qsa('[data-theme]').forEach(b=>b.addEventListener('click',()=>saveTheme(b.dataset.theme)));
-  $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot); $('adminBroadcastTestBtn')?.addEventListener('click',queueAdminBroadcastTest);
+  $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot); $('testSnapshotFile').addEventListener('change',previewTestSnapshot); $('adminBroadcastTestBtn')?.addEventListener('click',queueAdminBroadcastTest);
   $('testUserSwitch').addEventListener('change',()=>switchTestUser($('testUserSwitch').value));
   setInterval(()=>{ if($('tomorrow')?.classList.contains('active')) renderTomorrow(); },60000);
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').style.display='inline-block';});
@@ -1631,17 +1632,99 @@ function renderCalendarExceptions(){
 async function addCalendarException(){const date=$('calendarDate').value;if(!date){alert('Choisis une date.');return;}const type=$('calendarType').value,note=$('calendarNote').value.trim(),xs=[...(calendarConfig?.exceptions||[])].filter(x=>x.date!==date);xs.push({date,type,note});await setDoc(doc(db,'config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});$('calendarNote').value='';toast('Exception calendrier ajoutée.');}
 async function removeCalendarException(i){const xs=[...(calendarConfig?.exceptions||[])];xs.splice(i,1);await setDoc(doc(db,'config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});toast('Exception supprimée.');}
 
-const SNAPSHOT_COLLECTIONS=['profiles','availability','legacyStatus','compatibilities','plans','tripDays','preferences'];
+// Lot D : fichiers versionnés, précontrôlés et fusionnés sans suppression automatique.
+let inspectedTestSnapshot=null;
+async function readCompleteSnapshot(){
+  if(linkedProfileId!=='igor')throw new Error('Accès administrateur requis.');
+  const collections={};
+  for(const name of SNAPSHOT_COLLECTIONS){
+    const snap=await getDocsFromServer(collection(db,name));
+    collections[name]=snap.docs.map(d=>({id:d.id,data:encodeSnapshotValue(d.data())}));
+  }
+  const cal=await getDocFromServer(doc(db,'config','calendar'));
+  const data={schema:SNAPSHOT_SCHEMA,sourceProjectId:firebaseConfig.projectId,
+    exportedAt:new Date().toISOString(),collections};
+  if(cal.exists())data.calendar=encodeSnapshotValue(cal.data());
+  return data;
+}
 async function exportTestSnapshot(){
-  if(linkedProfileId!=='igor')return;const data={schema:1,exportedAt:new Date().toISOString(),collections:{},calendar:calendarConfig||{exceptions:[]}};for(const name of SNAPSHOT_COLLECTIONS){const snap=await getDocs(collection(db,name));data.collections[name]=snap.docs.map(d=>({id:d.id,data:d.data()}));}downloadJson(data,`Covoiturage_TEST_snapshot_${todayISO()}.json`);toast('Copie TEST exportée.');
+  if(linkedProfileId!=='igor')return;
+  try{
+    const data=await readCompleteSnapshot();
+    downloadJson(data,'Covoiturage_'+firebaseConfig.projectId+'_snapshot_'+todayISO()+'.json');
+    toast('Copie exportée, y compris les trajets Delle.');
+  }catch(e){alert('Export impossible : '+friendlyError(e));}
 }
-function downloadJson(data,name){const blob=new Blob([JSON.stringify(data,(k,v)=>v?.toDate?v.toDate().toISOString():v,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function downloadJson(data,name){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+function describeSnapshot(summary){
+  const counts=SNAPSHOT_COLLECTIONS.map(name=>name+' : '+(summary.counts[name]===null?'absent':summary.counts[name])).join(' · ');
+  return summary.total+' document(s) · '+counts+'\n'+summary.warnings.join('\n');
+}
+async function previewTestSnapshot(){
+  const f=$('testSnapshotFile').files?.[0],panel=$('snapshotAnalysis'),btn=$('importTestSnapshot');
+  inspectedTestSnapshot=null;btn.disabled=true;
+  if(!f){panel.textContent='Choisir un fichier JSON pour examiner son contenu.';return;}
+  if(f.size>50000000){panel.textContent='Fichier trop volumineux (>50 Mo).';return;}
+  panel.textContent='Analyse du fichier…';
+  try{
+    const summary=validateSnapshot(JSON.parse(await f.text()));
+    inspectedTestSnapshot=f;
+    panel.textContent='Fichier recevable (format '+summary.schema+', source : '+summary.sourceProjectId+').\n'+describeSnapshot(summary);
+    btn.disabled=false;
+  }catch(e){panel.textContent='Import refusé avant toute écriture : '+e.message;}
+}
 async function importTestSnapshot(){
-  if(!IS_TEST||linkedProfileId!=='igor')return;const f=$('testSnapshotFile').files?.[0];if(!f){alert('Choisis le fichier de copie TEST.');return;}const payload=JSON.parse(await f.text());if(!confirm('Remplacer les données métier de la base TEST par cette copie ?'))return;
-  for(const name of SNAPSHOT_COLLECTIONS){const old=await getDocs(collection(db,name));for(let i=0;i<old.docs.length;i+=400){const b=writeBatch(db);old.docs.slice(i,i+400).forEach(d=>b.delete(d.ref));await b.commit();}const recs=payload.collections?.[name]||[];for(let i=0;i<recs.length;i+=400){const b=writeBatch(db);recs.slice(i,i+400).forEach(r=>b.set(doc(db,name,r.id),r.data));await b.commit();}}
-  await setDoc(doc(db,'config','calendar'),payload.calendar||{exceptions:[]});
-  await rebuildQuotaBaseline({publish:true});toast('Base TEST actualisée · historique optimisé recalculé.');
+  if(!IS_TEST||linkedProfileId!=='igor')return;
+  const f=$('testSnapshotFile').files?.[0];
+  if(!f||f!==inspectedTestSnapshot){alert('Analyse d’abord le fichier à importer.');return;}
+  if(firebaseConfig.projectId!=='team-tool-test-data'){alert('Environnement TEST incorrect, import bloqué.');return;}
+  if(!navigator.onLine){alert('Connexion Internet nécessaire pour importer.');return;}
+  let summary;
+  try{summary=validateSnapshot(JSON.parse(await f.text()));}
+  catch(e){alert('Copie invalide : '+e.message);return;}
+  const message='PROJET DESTINATION : team-tool-test-data\n'
+    +'Il s’agit d’une FUSION, pas d’une remise à zéro : les documents absents sont conservés.\n'
+    +'Les documents de même identifiant seront remplacés par ceux du fichier.\n'
+    +'Calendrier : '+(summary.hasCalendar?'sera mis à jour':'conservé')+'.\n\n'
+    +describeSnapshot(summary)+'\n\nPréparer une copie de secours locale avant de continuer ?';
+  if(!confirm(message))return;
+  let safeguard;
+  try{
+    safeguard=await readCompleteSnapshot();
+    downloadJson(safeguard,'SAUVEGARDE_TEST_avant_import_'+todayISO()+'.json');
+  }catch(e){alert('Impossible de préparer la copie de secours : '+friendlyError(e)+'\nImport annulé.');return;}
+  if(!confirm('Vérifie que le fichier SAUVEGARDE_TEST_avant_import a bien été téléchargé et conservé hors GitHub. Continuer la fusion ?'))return;
+  const btn=$('importTestSnapshot'),panel=$('snapshotAnalysis');
+  btn.disabled=true;let written=0;
+  try{
+    for(const name of SNAPSHOT_COLLECTIONS){
+      const entries=summary.collections[name];
+      if(entries===null)continue; // Export ancien : collection non présente = aucune action.
+      for(let i=0;i<entries.length;i+=150){
+        const batch=writeBatch(db);
+        for(const row of entries.slice(i,i+150))
+          batch.set(doc(db,name,row.id),decodeSnapshotValue(row.data,(s,n)=>new Timestamp(s,n),summary.schema));
+        await batch.commit();written+=Math.min(150,entries.length-i);
+      }
+    }
+    if(summary.hasCalendar)
+      await setDoc(doc(db,'config','calendar'),decodeSnapshotValue(summary.calendar,(s,n)=>new Timestamp(s,n),summary.schema));
+    await rebuildQuotaBaseline({publish:true});
+    panel.textContent='Fusion terminée : '+written+' documents écrits. Documents absents conservés.';
+    toast('✓ Import TEST terminé · aucune suppression');
+  }catch(e){
+    panel.textContent='Import interrompu après '+written+' documents. Une partie peut avoir été écrite ; utiliser la sauvegarde locale pour restaurer si nécessaire.';
+    alert('Import partiel : '+friendlyError(e)+'\n'+panel.textContent);
+  }finally{
+    btn.disabled=false;
+  }
 }
+
 async function installPwa(){
   if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('installBtn').style.display='none';return;}
   const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);if(isiOS)alert('Sur iPhone/iPad : Safari → bouton Partager → Ajouter à l’écran d’accueil.');else alert('Utilise le menu du navigateur puis “Installer l’application” ou “Ajouter à l’écran d’accueil”.');
