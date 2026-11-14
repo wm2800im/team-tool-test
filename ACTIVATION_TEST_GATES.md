@@ -4,7 +4,7 @@ Autorisation de mise en service TEST donnée le 14/11/2026, **conditionnée** à
 
 ## Premier contrôle non destructif
 
-Le script `scripts/firebase-test-readiness.mjs` est validé automatiquement hors réseau par le workflow `firebase-test-readiness.yml`. Sa vérification **réelle** est exécutée uniquement dans le workflow manuel existant `.github/workflows/firebase-test-access.yml` (« Vérifier l’accès Google Cloud TEST »), sous le fournisseur OIDC déjà restreint à ce workflow. Celui-ci contrôle le projet `team-tool-test-data` (numéro `398960207483`) et effectue en plus son contrôle historique des permissions de PROD, **sans écriture ni modification de PROD**. Le nouveau script ne cible que TEST.
+Le script `scripts/firebase-test-readiness.mjs` est validé automatiquement hors réseau par le workflow `firebase-test-readiness.yml`. Sa vérification **réelle** est exécutée uniquement dans le workflow manuel existant `.github/workflows/firebase-test-access.yml` (« Vérifier l’accès Google Cloud TEST »), sous le fournisseur OIDC déjà restreint à ce workflow. Celui-ci contrôle le projet `team-tool-test-data` (numéro `398960207483`). Le workflow et le script interrogent exclusivement TEST.
 
 Il vérifie :
 - l'identité du projet et le statut de la base `(default)` ;

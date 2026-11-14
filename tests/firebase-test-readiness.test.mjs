@@ -40,6 +40,16 @@ test('admin explicitement provisionné par backend seulement',()=>{
  assert.equal(inspectAdminDocs({documents:[{name:'projects/team-tool-data/databases/(default)/documents/platformAdmins/uid',fields:{active:{booleanValue:true}}}]}),false);
 });
 
+test('le déclencheur ne lance que le précontrôle TEST depuis main',()=>{
+ const dispatcher=readFileSync(new URL('../.github/workflows/firebase-test-readiness-dispatch.yml',import.meta.url),'utf8');
+ const access=readFileSync(new URL('../.github/workflows/firebase-test-access.yml',import.meta.url),'utf8');
+ assert.match(dispatcher,/github\.repository_id == '1356239565' && github\.ref == 'refs\/heads\/main'/);
+ assert.match(dispatcher,/repos\/wm2800im\/team-tool-test\/actions\/workflows\/firebase-test-access\.yml\/dispatches/);
+ assert.match(dispatcher,/-f ref=main/);
+ assert.doesNotMatch(dispatcher,/pull_request|checkout|id-token/);
+ assert.doesNotMatch(access,/testIamPermissions|team-tool-data/);
+});
+
 test('le contrôle distant utilise uniquement le workflow manuel déjà autorisé',()=>{
  const live=readFileSync(new URL('../.github/workflows/firebase-test-access.yml',import.meta.url),'utf8');
  const staticWorkflow=readFileSync(new URL('../.github/workflows/firebase-test-readiness.yml',import.meta.url),'utf8');

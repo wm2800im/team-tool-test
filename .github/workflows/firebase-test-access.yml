@@ -44,18 +44,6 @@ jobs:
           fi
           jq --exit-status '.projectId == "team-tool-test-data" and .name == "projects/398960207483"' "$response"
 
-      - name: Vérifier le refus des permissions sur PROD
-        env:
-          ACCESS_TOKEN: ${{ steps.auth.outputs.auth_token }}
-        run: |
-          set -euo pipefail
-          response=$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $ACCESS_TOKEN" \
-            --header 'Content-Type: application/json' \
-            --data '{"permissions":["resourcemanager.projects.get","resourcemanager.projects.getIamPolicy"]}' \
-            'https://cloudresourcemanager.googleapis.com/v1/projects/team-tool-data:testIamPermissions')
-          jq --exit-status 'type == "object" and ((.permissions // []) == [])' <<< "$response"
-
       - name: Vérifier la préparation Firebase TEST (lecture seule)
         env:
           TEST_FIREBASE_AUTH_TOKEN: ${{ steps.auth.outputs.auth_token }}
