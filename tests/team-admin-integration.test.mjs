@@ -38,5 +38,5 @@ test('responsable de nouvelle équipe peut créer, remplacer et copier ses invit
 });
 test('affichage du nombre de membres et codes multiples par équipe',()=>{
  assert.match(app,/answered\+'\/'\+PEOPLE\.length\+' renseignés'/);
- assert.match(app,/join\(activeTeamId\?' · ':' '\)/);
+ assert.match(app,/join\(activeTeamId\?' · ':''\)/);
 });
