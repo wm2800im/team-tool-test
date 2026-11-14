@@ -2,6 +2,7 @@ import test,{before,beforeEach,after} from 'node:test';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {collection,doc,getDoc,getDocs,setDoc,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
+import {acceptedDepartureGroups} from '../multi-team-journey-core.mjs';
 
 const projectId='demo-teamtool-multiteam',date='2026-11-16';
 const A='wm-original',B='team-b';
@@ -250,4 +251,61 @@ test('Provisionnement atomique de cinq collègues TEST, sans accès croisé',asy
   await assertSucceeds(getDoc(ref(device,at(teamId,'members',teamId+'-m2'))));
   await assertFails(getDoc(ref(device,at(B,'members','zoe'))));
   await assertFails(getDoc(ref(ctx('alex'),at(teamId,'members',leaderId))));
+});
+
+test('Premier lien : le superadministrateur invite le responsable, puis le responsable invite un collègue',async()=>{
+  // Le compte du responsable n'est pas encore lié : seul l'administrateur peut amorcer l'équipe.
+  const admin=ctx('igor'),leaderToken='leader-initial-invite';
+  await assertSucceeds(setDoc(ref(admin,at(B,'invitations',leaderToken)),{memberId:'zoe',active:true}));
+  const freshLeader=env.authenticatedContext('uid-zoe-fresh').firestore();
+  await assertSucceeds(getDoc(ref(freshLeader,at(B,'invitations',leaderToken))));
+  await assertSucceeds(setDoc(ref(freshLeader,'teamDeviceLinks/uid-zoe-fresh'),{
+    teamId:B,memberId:'zoe',inviteToken:leaderToken
+  }));
+  await assertSucceeds(getDoc(ref(freshLeader,at(B,'members','alex'))));
+  await assertSucceeds(setDoc(ref(freshLeader,at(B,'invitations','alex-personal')),{
+    memberId:'alex',active:true
+  }));
+  const colleague=env.authenticatedContext('uid-alex-new').firestore();
+  await assertSucceeds(setDoc(ref(colleague,'teamDeviceLinks/uid-alex-new'),{
+    teamId:B,memberId:'alex',inviteToken:'alex-personal'
+  }));
+  await assertSucceeds(getDoc(ref(colleague,at(B,'members','zoe'))));
+  await assertFails(getDoc(ref(colleague,at(A,'members','igor'))));
+  await assertFails(setDoc(ref(colleague,at(B,'invitations','privilege-escalation')),{memberId:'ines',active:true}));
+});
+
+test('Parcours réel sur émulateur : impératif accepté par deux collègues, groupe unique et trajets isolés',async()=>{
+  const zoe=ctx('zoe'),alex=ctx('alex'),ines=ctx('ines'),ludo=ctx('ludo');
+  await assertSucceeds(setDoc(ref(zoe,avail(B,'zoe')),{date,memberId:'zoe',status:'time',time:'16:30'}));
+  await assertSucceeds(setDoc(ref(ines,avail(B,'ines')),{date,memberId:'ines',status:'present'}));
+  await assertSucceeds(setDoc(ref(alex,compat(B,'zoe','alex')),{date,ownerId:'zoe',responderId:'alex',response:'yes',ownerTime:'16:30'}));
+  await assertSucceeds(setDoc(ref(ines,compat(B,'zoe','ines')),{date,ownerId:'zoe',responderId:'ines',response:'yes',ownerTime:'16:30'}));
+  const memberSnap=await getDocs(collection(alex,'teams/'+B+'/members'));
+  const availabilitySnap=await getDocs(collection(alex,'teams/'+B+'/availability'));
+  const compatSnap=await getDocs(collection(alex,'teams/'+B+'/compatibilities'));
+  const members=memberSnap.docs.map(d=>({memberId:d.id,...d.data()}));
+  const availabilities=Object.fromEntries(availabilitySnap.docs.filter(d=>d.data().date===date).map(d=>[d.data().memberId,d.data()]));
+  const responses=Object.fromEntries(compatSnap.docs.filter(d=>d.data().date===date).map(d=>[
+    d.data().ownerId+':'+d.data().responderId,d.data()
+  ]));
+  const workspace={teams:[{teamId:B,name:'Équipe B',members,days:{[date]:{availability:availabilities,responses}}}]};
+  const proposal=acceptedDepartureGroups(workspace,B,date);
+  assert.deepEqual(proposal.groups,[{time:'16:30',members:['zoe','alex','ines']}]);
+  assert.deepEqual(proposal.remaining,[]);
+  await assertSucceeds(setDoc(ref(zoe,at(B,'plans',date)),{
+    date,groups:[{members:proposal.groups[0].members,driver:'zoe',time:'16:30'}]
+  }));
+  await assertSucceeds(setDoc(ref(alex,at(B,'tripDays',date)),{
+    date,groups:[{members:proposal.groups[0].members,driver:'zoe',time:'16:30'}]
+  }));
+  await assertSucceeds(setDoc(ref(zoe,at(B,'config','calendar')),{exceptions:[{date:'2026-11-20',type:'off'}]}));
+  const tripB=await getDoc(ref(ines,at(B,'tripDays',date)));
+  const tripA=await getDoc(ref(ludo,at(A,'tripDays',date)));
+  assert.deepEqual(tripB.data().groups[0].members,['zoe','alex','ines']);
+  assert.deepEqual(tripA.data().groups[0].members,['igor','ludo']);
+  assert.equal(tripB.data().groups[0].driver,'zoe');
+  await assertFails(getDoc(ref(alex,at(A,'tripDays',date))));
+  await assertFails(getDoc(ref(ludo,at(B,'config','calendar'))));
+  await assertFails(setDoc(ref(alex,at(A,'tripDays',date)),{date,groups:[]}));
 });
