@@ -135,3 +135,18 @@ test('compact Firestore parts stay comfortably below document size in a large fi
   const parts=splitBaselineParts(makeArchiveBaseline({liveStart:TEST_CUTOFF,generation:'big',generatedAtMs:6,tripDaysDocs,availabilityDocs,legacyStatusDocs,plansDocs}));
   for(const part of Object.values(parts)) assert.ok(encodedBytes(part)<800000);
 });
+
+test('La baseline conserve les identifiants de membre des deux modèles', () => {
+  const baseline = makeArchiveBaseline({
+    liveStart: '2026-11-01',
+    availabilityDocs: [
+      { id: '2026-10-01_alex', data: { memberId: 'alex', status: 'present' } },
+      { id: '2026-10-02_igor', data: { profileId: 'igor', status: 'present' } }
+    ],
+    legacyStatusDocs: [
+      { id: '2026-10-01_zoe', data: { memberId: 'zoe', status: 'absent' } }
+    ]
+  });
+  assert.deepEqual(baseline.availability.map(row => row[2]), ['alex', 'igor']);
+  assert.equal(baseline.legacyStatus[0][2], 'zoe');
+});
