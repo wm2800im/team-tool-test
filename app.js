@@ -1164,11 +1164,38 @@ async function isProvisionedPlatformAdmin(){
   const snap=await getDoc(doc(db,'platformAdmins',authUser.uid));
   return snap.exists()&&snap.data()?.active===true;
 }
+
+// Lors de la création, aucun membre n'est encore relié à Firebase Auth.
+// Seul le superadministrateur de confiance peut délivrer le premier lien au responsable.
+async function readPlatformTeamLeader(teamId){
+  if(!TEAM_ADMIN_TEST||activeTeamId||!await isProvisionedPlatformAdmin())
+    throw new Error('Accès superadministrateur TEST requis.');
+  if(teamId==='wm-original')throw new Error('Équipe historique protégée.');
+  const team=await getDoc(doc(db,'teams',teamId));
+  if(!team.exists()||team.data()?.status!=='active')throw new Error('Équipe non active.');
+  const members=await getDocs(collection(db,'teams',teamId,'members'));
+  const active=members.docs.filter(d=>d.data()?.active===true);
+  const leaders=active.filter(d=>d.data()?.role==='leader');
+  if(active.length<2||active.length>5||leaders.length!==1)
+    throw new Error('Composition invalide : il faut de 2 à 5 membres et un responsable.');
+  return {leaderId:leaders[0].id,leaderName:leaders[0].data().displayName||leaders[0].id};
+}
+async function issuePlatformLeaderInvite(teamId){
+  const {leaderId}=await readPlatformTeamLeader(teamId);
+  const snap=await getDocs(collection(db,'teams',teamId,'invitations'));
+  const previous=snap.docs.filter(d=>d.data()?.active===true&&d.data()?.memberId===leaderId);
+  const token=randomToken();
+  const batch=writeBatch(db);
+  previous.forEach(d=>batch.update(doc(db,'teams',teamId,'invitations',d.id),{active:false}));
+  batch.set(doc(db,'teams',teamId,'invitations',token),
+    {memberId:leaderId,active:true,createdAt:serverTimestamp()});
+  await batch.commit();
+  return teamInvitationUrl(baseAppUrl(),teamId,token);
+}
 async function renderPlatformTeams(){
   const panel=$('platformTeamsBlock'),status=$('teamCreateState'),button=$('createTeamBtn'),list=$('platformTeamsList');
   if(!TEAM_ADMIN_TEST)return;
-  panel.style.display='block';
-  button.disabled=true;
+  panel.style.display='block';button.disabled=true;
   status.textContent='Vérification des droits Firebase TEST…';
   try{
     if(!await isProvisionedPlatformAdmin()){
@@ -1178,17 +1205,63 @@ async function renderPlatformTeams(){
     const snap=await getDocs(collection(db,'teams'));
     list.replaceChildren();
     for(const item of snap.docs){
+      const teamId=item.id,teamData=item.data();
       const row=document.createElement('div');row.className='admin-item';
-      row.textContent=(item.data().name||item.id)+' · '+item.id+' · '+(item.data().status||'');
+      const heading=document.createElement('strong');
+      heading.textContent=(teamData.name||teamId)+' · '+teamId;
+      row.appendChild(heading);
+      const meta=document.createElement('div');meta.className='small muted';
+      meta.textContent='État : '+(teamData.status||'inconnu');
+      row.appendChild(meta);
+      if(teamId!=='wm-original'&&teamData.status==='active'){
+        try{
+          const leader=await readPlatformTeamLeader(teamId);
+          const leaderLabel=document.createElement('div');leaderLabel.className='small muted';
+          leaderLabel.textContent='Responsable : '+leader.leaderName;row.appendChild(leaderLabel);
+          const invites=await getDocs(collection(db,'teams',teamId,'invitations'));
+          const latest=invites.docs.filter(d=>d.data()?.memberId===leader.leaderId&&d.data()?.active===true)
+            .sort((a,b)=>(b.data()?.createdAt?.seconds||0)-(a.data()?.createdAt?.seconds||0))[0];
+          if(latest){
+            const url=teamInvitationUrl(baseAppUrl(),teamId,latest.id);
+            const value=document.createElement('div');value.className='linkbox';value.textContent=url;
+            row.appendChild(value);
+            const copy=document.createElement('button');copy.className='btn secondary smallbtn';copy.type='button';copy.textContent='Copier le lien du responsable';
+            copy.addEventListener('click',()=>navigator.clipboard.writeText(url).then(()=>toast('Lien copié')).catch(e=>alert(friendlyError(e))));
+            row.appendChild(copy);
+          }
+          const inviteBtn=document.createElement('button');inviteBtn.className='btn secondary smallbtn';inviteBtn.type='button';
+          inviteBtn.textContent=latest?'Régénérer le lien responsable':'Créer le premier lien responsable';
+          inviteBtn.addEventListener('click',async()=>{
+            if(!confirm('Générer le lien du responsable '+leader.leaderName+' pour '+(teamData.name||teamId)+' ?'))return;
+            inviteBtn.disabled=true;status.textContent='Création du lien responsable…';
+            try{
+              const url=await issuePlatformLeaderInvite(teamId);
+              await renderPlatformTeams();
+              status.textContent='Lien responsable prêt : copie-le puis ouvre-le dans un autre navigateur TEST.';
+              const linkBox=$('platformTeamsList').querySelector('[data-team-id="'+teamId+'"] .linkbox');
+              if(linkBox)linkBox.scrollIntoView({block:'nearest'});
+              // L'adresse est disponible dans la liste, aucune invitation n'est publiée dans les logs.
+              void url;
+            }catch(e){status.textContent='Invitation impossible : '+friendlyError(e);inviteBtn.disabled=false;}
+          });
+          row.appendChild(inviteBtn);
+        }catch(e){
+          const warn=document.createElement('div');warn.className='small muted';
+          warn.textContent='Invitations indisponibles : '+friendlyError(e);row.appendChild(warn);
+        }
+      }
+      row.dataset.teamId=teamId;
       list.appendChild(row);
     }
-    button.disabled=false;status.textContent='Création disponible sur Firebase TEST.';
+    button.disabled=false;
+    if(!status.textContent.includes('prêt'))status.textContent='Création disponible sur Firebase TEST.';
   }catch(e){status.textContent='Gestion multi-équipes indisponible : '+friendlyError(e);}
 }
 async function createNewTeam(){
   const status=$('teamCreateState'),button=$('createTeamBtn');
   if(!TEAM_ADMIN_TEST||activeTeamId)return;
   button.disabled=true;
+  let createdId=null;
   try{
     if(!await isProvisionedPlatformAdmin())throw new Error('Accès superadministrateur requis.');
     const prepared=prepareTeamCreation({
@@ -1214,11 +1287,15 @@ async function createNewTeam(){
         tx.set(doc(db,'teams',prepared.teamId,'shortCodes',shortCode),{memberId});
       });
     });
+    createdId=prepared.teamId;
     $('newTeamId').value='';$('newTeamName').value='';$('newTeamMembers').value='';
+    try{await issuePlatformLeaderInvite(createdId);}
+    catch(e){console.warn('Première invitation non créée, intervention disponible depuis la liste.',e);}
     await renderPlatformTeams();
-    status.textContent='Équipe créée. Les invitations peuvent être générées par son responsable.';
-  }catch(e){status.textContent='Création refusée : '+friendlyError(e);}
-  finally{button.disabled=!TEAM_ADMIN_TEST;}
+    status.textContent='Équipe '+prepared.name+' créée. '+(createdId?'Vérifie le lien du responsable dans la liste.':'');
+  }catch(e){
+    status.textContent=(createdId?'Équipe créée, mais suite interrompue : ':'Création refusée : ')+friendlyError(e);
+  }finally{button.disabled=!TEAM_ADMIN_TEST;}
 }
 async function renderTeamAdministration(){
   const panel=$('teamMemberAdminBlock'),list=$('teamMemberInvites'),state=$('teamMemberAdminState');
