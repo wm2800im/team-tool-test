@@ -1,0 +1,38 @@
+name: Préparer le déploiement des règles Firebase TEST
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-test-rules
+  cancel-in-progress: false
+
+jobs:
+  application:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/checks.yml
+  rules:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/multiteam-candidate.yml
+  plan:
+    needs: [application, rules]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Identifier la version contrôlée
+        run: |
+          set -euo pipefail
+          jq -e '.firestore.rules == "firestore.rules.multiteam.candidate.txt"' firestore.rules-multiteam.firebase.json
+          {
+            echo "### Préparation Firebase TEST"
+            echo "- Projet : team-tool-test-data (398960207483)"
+            echo "- Base : (default)"
+            echo "- Commit : $GITHUB_SHA"
+            echo "- Empreinte SHA-256 : $(sha256sum firestore.rules.multiteam.candidate.txt | cut -d' ' -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
