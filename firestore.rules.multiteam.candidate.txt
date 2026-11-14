@@ -175,7 +175,7 @@ service cloud.firestore {
         allow get,list: if canReadTeam(teamId);
         allow create: if isPlatformAdmin()
           && request.resource.data.keys().hasAll(['firstName','displayName','shortCode','role','active'])
-          && request.resource.data.keys().hasOnly(['firstName','displayName','shortCode','role','active','joinedAt'])
+          && request.resource.data.keys().hasOnly(['firstName','displayName','shortCode','role','active','joinedAt','legacyProfile'])
           && request.resource.data.role in ['member','leader']
           && request.resource.data.active is bool
           && request.resource.data.shortCode is string
