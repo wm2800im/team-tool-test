@@ -1,0 +1,32 @@
+name: Tableau de bord TeamTool TEST
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1-5'
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+jobs:
+  dashboard:
+    if: github.repository_id == '1356239565'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publier la synthèse du dépôt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            cat ROADMAP.md
+            printf '\n## Pull requests ouvertes\n\n'
+            gh pr list --repo "$GITHUB_REPOSITORY" --limit 30 --json number,url,isDraft --jq '.[] | "- [PR #\(.number)](\(.url)) · brouillon : \(.isDraft)"'
+            printf '\n## Derniers échecs sur main\n\n'
+            gh run list --repo "$GITHUB_REPOSITORY" --branch main --status failure --limit 10 --json databaseId,url --jq '.[] | "- [Exécution \(.databaseId)](\(.url))"'
+          } >> "$GITHUB_STEP_SUMMARY"
