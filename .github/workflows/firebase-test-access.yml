@@ -1,0 +1,33 @@
+name: Vérifier l’accès Google Cloud TEST
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  verify:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    steps:
+      - name: Obtenir un jeton fédéré temporaire
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: team-tool-test-data
+          workload_identity_provider: projects/398960207483/locations/global/workloadIdentityPools/teamtool-test-github/providers/github
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Vérifier les métadonnées du projet TEST
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.auth_token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            'https://cloudresourcemanager.googleapis.com/v3/projects/398960207483' \
+            | jq --exit-status '.projectId == "team-tool-test-data" and .name == "projects/398960207483"'
