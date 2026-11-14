@@ -40,3 +40,13 @@ test('affichage du nombre de membres et codes multiples par équipe',()=>{
  assert.match(app,/answered\+'\/'\+PEOPLE\.length\+' renseignés'/);
  assert.match(app,/join\(activeTeamId\?' · ':''\)/);
 });
+
+test('l’administrateur peut délivrer le premier lien au responsable non encore connecté',()=>{
+ assert.match(app,/async function readPlatformTeamLeader\(teamId\)/);
+ assert.match(app,/async function issuePlatformLeaderInvite\(teamId\)/);
+ assert.match(app,/if\(teamId==='wm-original'\)throw/);
+ assert.match(app,/const leaders=active\.filter\(d=>d\.data\(\)\?\.role==='leader'\)/);
+ assert.match(app,/batch\.set\(doc\(db,'teams',teamId,'invitations',token\)/);
+ assert.match(app,/await issuePlatformLeaderInvite\(createdId\)/);
+ assert.match(app,/Copier le lien du responsable/);
+});
