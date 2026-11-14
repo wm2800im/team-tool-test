@@ -59,3 +59,10 @@ test('diagnostics compréhensibles sans divulguer de données',()=>{
  assert.match(safeApiDiagnostic(503),/HTTP 503/);
  assert.equal(safeApiDiagnostic(), 'erreur de lecture ou délai dépassé');
 });
+
+test('une sauvegarde d’une autre base TEST ne satisfait pas le précontrôle',()=>{
+ const now=new Date('2026-11-14T15:00:00Z');
+ const backup={database:'projects/team-tool-test-data/databases/recovery',state:'READY',
+   snapshotTime:'2026-11-14T12:00:00Z',expireTime:'2026-11-21T00:00:00Z'};
+ assert.equal(inspectBackups({backups:[backup]},now),true);
+});
