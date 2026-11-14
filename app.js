@@ -429,18 +429,12 @@ async function resolveLinkedTeam(uid){
   return true;
 }
 async function associateTeamInvite({teamId,token}){
-  const [team,invitation]=await Promise.all([
-    getDoc(doc(db,'teams',teamId)),getDoc(doc(db,'teams',teamId,'invitations',token))
-  ]);
-  if(team.data()?.status!=='active'||invitation.data()?.active!==true)
+  // Un compte non associé ne peut pas lire les membres ni l'annuaire.
+  // Les règles contrôlent ces documents lors de la création du lien.
+  const invitation=await getDoc(doc(db,'teams',teamId,'invitations',token));
+  if(!invitation.exists()||invitation.data()?.active!==true)
     throw new Error('L’invitation d’équipe n’est pas active.');
   const memberId=invitation.data().memberId;
-  const [member,directory]=await Promise.all([
-    getDoc(doc(db,'teams',teamId,'members',memberId)),
-    getDoc(doc(db,'memberDirectory',memberId))
-  ]);
-  validateLinkedTeam({teamId,memberId,teamStatus:team.data()?.status,
-    directoryTeamId:directory.data()?.teamId,memberActive:member.data()?.active});
   await setDoc(doc(db,'teamDeviceLinks',authUser.uid),{
     teamId,memberId,inviteToken:token,createdAt:serverTimestamp(),userAgent:navigator.userAgent.slice(0,300)
   });
