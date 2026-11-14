@@ -1073,7 +1073,7 @@ function currentGroupCounterSummary(trips){
 function groupBalanceFilterLetters(value){
   if(activeTeamId){
     const valid=new Set(PEOPLE.map(p=>INITIAL[p]?.toUpperCase()).filter(Boolean));
-    return [...new Set(String(value||'').toUpperCase().split(/[\\s,;·]+/).filter(code=>valid.has(code)))];
+    return [...new Set(String(value||'').toUpperCase().split(/[\s,;·]+/).filter(code=>valid.has(code)))];
   }
   const valid=new Set(PEOPLE.map(p=>INITIAL[p]).filter(Boolean));
   return [...new Set(String(value||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').filter(ch=>valid.has(ch)))];
@@ -1215,10 +1215,10 @@ async function createNewTeam(){
       });
     });
     $('newTeamId').value='';$('newTeamName').value='';$('newTeamMembers').value='';
-    status.textContent='Équipe créée. Les invitations peuvent être générées par son responsable ou un superadministrateur.';
     await renderPlatformTeams();
+    status.textContent='Équipe créée. Les invitations peuvent être générées par son responsable.';
   }catch(e){status.textContent='Création refusée : '+friendlyError(e);}
-  finally{button.disabled=false;}
+  finally{button.disabled=!TEAM_ADMIN_TEST;}
 }
 async function renderTeamAdministration(){
   const panel=$('teamMemberAdminBlock'),list=$('teamMemberInvites'),state=$('teamMemberAdminState');
