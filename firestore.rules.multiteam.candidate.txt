@@ -91,12 +91,15 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)).data.memberId;
     }
     function isTeamMember(teamId){
-      return teamLinkExists()
+      return teamIsActive(teamId) && teamLinkExists()
         && linkedTeamId() == teamId
         && exists(/databases/$(database)/documents/memberDirectory/$(linkedMemberId()))
         && get(/databases/$(database)/documents/memberDirectory/$(linkedMemberId())).data.teamId == teamId
         && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId()))
         && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId())).data.active == true;
+    }
+    function teamIsActive(teamId){
+      return get(/databases/$(database)/documents/teams/$(teamId)).data.status == 'active';
     }
     function isTeamLeader(teamId){
       return isTeamMember(teamId)
@@ -148,6 +151,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['teamId','memberId','inviteToken','createdAt','userAgent'])
         && request.resource.data.teamId is string
         && request.resource.data.memberId is string
+        && teamIsActive(request.resource.data.teamId)
         && request.resource.data.inviteToken is string
         && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/invitations/$(request.resource.data.inviteToken))
         && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/invitations/$(request.resource.data.inviteToken)).data.active == true
@@ -198,7 +202,7 @@ service cloud.firestore {
         allow update,delete: if false; // réservation permanente, même après départ
       }
       match /invitations/{token}{
-        allow get: if signedIn(); // un appareil non associé peut consulter son lien personnel
+        allow get: if signedIn() && (isPlatformAdmin() || teamIsActive(teamId));
         allow list: if canManageTeam(teamId);
         allow create: if canManageTeam(teamId)
           && request.resource.data.keys().hasAll(['memberId','active'])
