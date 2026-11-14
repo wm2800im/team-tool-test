@@ -1,0 +1,30 @@
+name: Déclencher le précontrôle Firebase TEST
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/firebase-test-readiness-dispatch.yml'
+      - '.github/workflows/firebase-test-access.yml'
+      - 'scripts/firebase-test-readiness.mjs'
+      - 'firestore.rules.test.txt'
+      - 'firestore.rules.multiteam.candidate.txt'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Déclencher le workflow de lecture TEST sur main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            repos/wm2800im/team-tool-test/actions/workflows/firebase-test-access.yml/dispatches \
+            -f ref=main
