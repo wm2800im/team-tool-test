@@ -4,6 +4,7 @@
 globalThis.COVOIT_ENV = {
   environment: "test",
   version: "4.8.3-test.2",
+  enableMultiTeamRuntime: false, // Activation TEST réservée à la recette Firebase et à l’accord distinct.
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
     apiKey: "AIzaSyBOoonCuL0dIzBS3R6W6TlnK6Qp_fCzuqk",
