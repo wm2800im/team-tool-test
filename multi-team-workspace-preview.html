@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>TeamTool TEST — atelier multi-équipes</title>
+<link rel="stylesheet" href="./styles.css">
+<style>
+  body{margin:0;background:#f2f5f9;color:#203047;font:14px/1.5 system-ui,Arial,sans-serif}
+  .workshop{max-width:1120px;margin:0 auto;padding:20px}
+  .workshop h1{font-size:23px;margin:0}
+  .workshop p{margin:6px 0}
+  .workshop .notice{background:#fff4d8;color:#6c4d08;border:1px solid #e7c572;border-radius:12px;padding:12px}
+  .workshop-grid{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:18px;margin-top:18px}
+  .workshop-panel{background:#fff;border:1px solid #d9e1eb;border-radius:16px;padding:17px;box-shadow:0 3px 15px #172b4210}
+  .team-choice{display:block;width:100%;text-align:left;background:#f7f9fb;border:1px solid #d9e1eb;border-radius:10px;padding:12px;margin:7px 0;cursor:pointer;color:inherit}
+  .team-choice[aria-pressed=true]{background:#e6f2ff;border-color:#457fae}
+  .team-choice small{display:block;color:#53667d}
+  .workshop label{display:block;font-weight:600;margin-top:10px}
+  .workshop input,.workshop select{display:block;width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #b9c5d5;background:#fff;color:#203047}
+  .workshop button.primary{background:#204c75;color:#fff;padding:10px 14px;border:none;border-radius:9px;cursor:pointer;margin-top:12px}
+  .workshop button.primary:hover{background:#153754}
+  .workshop .member-row{display:grid;grid-template-columns:38px minmax(80px,1fr) minmax(110px,155px) minmax(90px,125px);gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #e7edf4}
+  .workshop .avatar{display:grid;place-items:center;width:35px;height:35px;background:#e5edf7;border-radius:100%;font-weight:700}
+  .workshop .member-row select,.workshop .member-row input{margin:0}
+  .workshop .answer-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-bottom:1px solid #e7edf4;padding:10px 0}
+  .workshop .answer-row select{max-width:140px}
+  .workshop .groups{display:grid;gap:10px;margin-top:8px}
+  .workshop .group-item{background:#e9f4ee;border:1px solid #bcddca;border-radius:10px;padding:12px}
+  .workshop .muted{color:#55687f;font-size:12px}
+  .workshop .error{background:#ffecec;color:#8d2424;border-radius:8px;padding:8px;margin-top:10px}
+  .workshop hr{border:0;border-top:1px solid #dfe6ee;margin:20px 0}
+  @media(max-width:700px){.workshop-grid{grid-template-columns:1fr}.workshop .member-row{grid-template-columns:38px 1fr 120px}.workshop .member-row .departure{grid-column:3}}
+</style>
+</head>
+<body>
+<main class="workshop">
+  <h1>TeamTool TEST · Atelier multi-équipes</h1>
+  <p>Prévisualisation interactive des équipes et des impératifs horaires.</p>
+  <p class="notice"><strong>Simulation hors ligne :</strong> les données sont fictives et temporaires. Aucun accès Firebase, aucune écriture et aucune modification de l’application actuelle.</p>
+  <div class="workshop-grid">
+    <aside class="workshop-panel">
+      <h2>Équipes</h2>
+      <div id="teams"></div>
+      <hr>
+      <h3>Créer une équipe fictive</h3>
+      <form id="createTeam">
+        <label for="teamName">Nom de l’équipe</label>
+        <input id="teamName" required minlength="2" placeholder="Ex. Équipe du matin">
+        <label for="teamMembers">Prénoms (2 à 5, séparés par une virgule)</label>
+        <input id="teamMembers" required placeholder="Ex. Marie, Paul, Jules">
+        <p class="muted">Le premier membre devient responsable. Chaque équipe a ses propres données.</p>
+        <button type="submit" class="primary">Créer l’équipe</button>
+      </form>
+    </aside>
+    <section class="workshop-panel">
+      <h2 id="teamTitle">—</h2>
+      <p id="teamInfo" class="muted"></p>
+      <label for="day">Date du covoiturage</label>
+      <input type="date" id="day" value="2026-11-16">
+      <h3>Disponibilités</h3>
+      <div id="members"></div>
+      <h3>Réponses aux impératifs</h3>
+      <div id="answers"></div>
+      <h3>Groupes par heure acceptée</h3>
+      <div id="groups" class="groups"></div>
+      <div id="error" role="alert"></div>
+      <p class="muted">Cet atelier valide uniquement la composition des groupes par engagements horaires. Les propositions automatiques, l’historique, les quotas et les notifications seront intégrés à l’application multi-équipes après recette.</p>
+    </section>
+  </div>
+</main>
+<script type="module" src="./multi-team-workspace-preview.js"></script>
+</body>
+</html>
