@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>TeamTool TEST — Audit des accès · Phase 3</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#1e3145;background:#f3f7fb}
+*{box-sizing:border-box}body{margin:0;line-height:1.55}a{color:inherit}
+header{background:#18344f;color:#fff;padding:24px max(22px,calc((100vw - 970px)/2))}
+header h1{font-size:clamp(1.3rem,2.8vw,1.8rem);margin:0}header p{color:#d0e1ee;margin:5px 0 0}
+main{max-width:970px;margin:24px auto;padding:0 18px 48px}
+section{padding:22px;margin:0 0 16px;background:#fff;border:1px solid #d5e0eb;border-radius:13px}
+h2{font-size:1.16rem;margin:0 0 12px}h3{font-size:1rem;margin:16px 0 6px}
+.note{background:#e9f2fc;border-left:4px solid #47799f;border-radius:6px;padding:12px 14px}
+.warn{background:#fff3dc;border-left-color:#c98825}
+.small{color:#506678;font-size:.9rem}button{background:#23587e;border:0;border-radius:9px;padding:10px 17px;color:#fff;font:inherit;cursor:pointer}button[disabled]{opacity:.45;cursor:not-allowed}
+input[type=file]{max-width:100%;padding:10px;background:#f8fbfe;border:1px solid #b9ccdd;border-radius:7px}
+table{border-collapse:collapse;width:100%;font-size:.94rem}td,th{text-align:left;border-bottom:1px solid #e1e9ef;padding:10px 6px}th{color:#466078}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.metric{background:#f5f9fd;border:1px solid #dae6ef;border-radius:8px;padding:12px}.metric strong{display:block;font-size:1.5rem}.metric span{font-size:.81rem;color:#526b7c}
+.good{color:#167246}.bad{color:#a43a25}ul{padding-left:23px}li{margin:5px 0}
+@media(max-width:620px){.grid{grid-template-columns:1fr 1fr}section{padding:16px}}
+</style></head>
+<body><header><h1>TeamTool TEST · Audit des accès</h1><p>Phase 3 — appareils et invitations avant migration multi-équipes</p></header>
+<main>
+<section><div class="note"><strong>Lecture seule.</strong> Ce contrôle lit les associations d'appareils et les invitations de Firebase TEST, avec ton accès administrateur existant. Aucun nouveau compte, aucune écriture ni migration.</div>
+<h2 style="margin-top:18px">1. Contrôler l'accès administrateur</h2>
+<p>Ouvre <a href="./" target="_blank" rel="noopener">TeamTool TEST</a> dans le même navigateur, depuis ton appareil associé à Igor, puis reviens ici.</p>
+<p id="authStatus" class="small" aria-live="polite">Vérification de la session TEST…</p>
+<button id="auditButton" disabled>Analyser les accès TEST</button>
+<p class="small">Les identifiants Firebase (UID), les codes d'invitation et les informations d'appareils ne sont jamais affichés ni intégrés au rapport téléchargé.</p>
+</section>
+<section><h2>2. Croiser avec le rapport métier de phase 2</h2>
+<p>Sélectionne le fichier <strong>TeamTool_TEST_rapport_simulation_phase2.json</strong> généré lors de la phase précédente.</p>
+<label for="phase2Report" class="small">Rapport de simulation</label>
+<input id="phase2Report" type="file" accept=".json,application/json">
+<p id="phase2Status" class="small" aria-live="polite">Aucun rapport sélectionné.</p>
+</section>
+<section id="reportSection" hidden><h2>3. Résultat de l'audit</h2>
+<p id="statusText" aria-live="polite"></p>
+<div class="grid"><div class="metric"><strong id="countDevices">—</strong><span>Appareils associés</span></div>
+<div class="metric"><strong id="countInvites">—</strong><span>Invitations enregistrées</span></div>
+<div class="metric"><strong id="countActive">—</strong><span>Invitations encore actives</span></div></div>
+<div style="overflow-x:auto"><table><thead><tr><th>Membre</th><th>Appareils</th><th>Liens actifs</th><th>Anciens liens</th></tr></thead><tbody id="profileRows"></tbody></table></div>
+<h3>Points bloquants</h3><ul id="blockers"></ul><h3>Points à vérifier</h3><ul id="warnings"></ul>
+<h3>Étapes restantes avant une migration réelle</h3><ul id="remaining"></ul>
+<div class="note warn"><strong>Le contrôle n'autorise aucune migration.</strong> Les appareils restent associés à l'ancien système tant qu'une opération distincte n'a pas été validée.</div>
+<p><button id="exportReport" disabled>Exporter le rapport d'audit anonymisé</button></p></section>
+<p class="small">Projet : team-tool-test-data. Aucun changement dans la production.</p>
+</main><script src="./public-config.js"></script><script type="module" src="./phase3-access-ui.js"></script></body></html>
