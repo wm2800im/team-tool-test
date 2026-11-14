@@ -158,7 +158,7 @@ export function simulateLegacyMigration(snapshot){
     normalizeIdentity(data,'date',info.date,src,errors);
     normalizeIdentity(data,'profileId',info.memberId,src,errors);
     // Conserver aussi profileId pour la compatibilité historique.
-    data.memberId=info.memberId;
+    normalizeIdentity(data,'memberId',info.memberId,src,errors);
     add(teamPath(LEGACY_TEAM_ID,'legacyStatus',row.id),data,'legacy-status',src);
   }
   for(const collection of ['plans','tripDays']){

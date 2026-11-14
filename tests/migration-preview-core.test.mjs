@@ -136,3 +136,18 @@ test('Aucune exécution, aucun statut activé ni droits Firebase dans le module'
  assert.ok(x.prerequisites.some(v=>v.includes('deviceLinks')));
  assert.ok(x.prerequisites.some(v=>v.includes('sauvegarde')));
 });
+
+test('Identité memberId discordante dans un ancien statut : migration refusée',()=>{
+ const p=fixture();p.collections.legacyStatus[0].data.memberId='autre';
+ const x=simulateLegacyMigration(p);
+ assert.equal(x.valid,false);
+ assert.match(x.errors.join(' '),/memberId incohérent/);
+});
+test('La page navigateur n’utilise aucun SDK Firebase ni écriture',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const ui=readFileSync(new URL('../migration-preview-ui.js',import.meta.url),'utf8');
+ const page=readFileSync(new URL('../migration-preview.html',import.meta.url),'utf8');
+ assert.match(page,/migration-preview-ui\.js/);
+ assert.doesNotMatch(ui,/https?:\/\/|fetch\s*\(|getFirestore|setDoc|updateDoc|deleteDoc|writeBatch/);
+ assert.match(ui,/file\.text\(\)/);
+});
