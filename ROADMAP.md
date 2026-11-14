@@ -7,7 +7,7 @@
 | Terminé | Atelier fonctionnel multi-équipes TEST | PR #9 fusionnée, équipes fictives de 2–5 membres, engagements horaires et groupes par heure acceptée, aucun Firebase |
 | Terminé (préparation) | Runtime multi-équipes dans l'application | PR #10 : chemins Firestore isolables, liens d'équipe et membres dynamiques, toujours derrière flag OFF |
 | En cours | Administration multi-équipes TEST | PR #11 fusionnée : administration et invitations par équipe en place ; PR #12 : invitation initiale du responsable + tests de bout en bout ; flag OFF sur TEST |
-| Prêt | Recette locale de publication | Tester avec une API simulée les erreurs de sauvegarde, la dérive et le retour arrière |
+| Terminé (simulation) | Recette locale de publication | PR #18 fusionnée : erreurs de stockage, corruption et dérive testées avec une API simulée. La restauration réelle reste à prouver. |
 | Prêt | Parcours multi-équipes isolé | Vérifier invitations, accès Delle, notifications et recalcul des quotas |
 | À confirmer | Protection de l’environnement GitHub et IAM | Vérifier réviseurs, branche main et identité distincte avant activation du job |
 | Non nécessaire au premier essai d'une nouvelle équipe | Copie de l'équipe historique | L'application historique garde ses collections racines : ne pas la migrer pour tester une nouvelle équipe fictive ; migration future après sauvegarde et validation UID |
