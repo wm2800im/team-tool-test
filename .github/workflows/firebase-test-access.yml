@@ -27,7 +27,12 @@ jobs:
           ACCESS_TOKEN: ${{ steps.auth.outputs.auth_token }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error \
+          response=$(mktemp)
+          status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
-            'https://cloudresourcemanager.googleapis.com/v3/projects/398960207483' \
-            | jq --exit-status '.projectId == "team-tool-test-data" and .name == "projects/398960207483"'
+            'https://cloudresourcemanager.googleapis.com/v3/projects/398960207483')
+          if [[ "$status" != 200 ]]; then
+            jq -c '.error | {code, status, message, reasons: [.details[]?.reason | select(. != null)]}' "$response"
+            exit 1
+          fi
+          jq --exit-status '.projectId == "team-tool-test-data" and .name == "projects/398960207483"' "$response"
