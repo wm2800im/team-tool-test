@@ -1,0 +1,297 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn(){ return request.auth != null; }
+    function linkExists(){ return signedIn() && exists(/databases/$(database)/documents/deviceLinks/$(request.auth.uid)); }
+    function myProfile(){ return get(/databases/$(database)/documents/deviceLinks/$(request.auth.uid)).data.profileId; }
+    function isLinked(){ return linkExists(); }
+    function isAdmin(){ return isLinked() && myProfile() == 'igor'; }
+    function validInvite(token,pid){ return exists(/databases/$(database)/documents/invitations/$(token)) && get(/databases/$(database)/documents/invitations/$(token)).data.active == true && get(/databases/$(database)/documents/invitations/$(token)).data.profileId == pid; }
+    match /invitations/{token}{ allow get: if signedIn(); allow list,create,update,delete: if isAdmin(); }
+    match /deviceLinks/{uid}{
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['profileId','inviteToken','createdAt','userAgent'])
+        && request.resource.data.profileId is string
+        && request.resource.data.inviteToken is string
+        && validInvite(request.resource.data.inviteToken,request.resource.data.profileId);
+      allow update: if false;
+      allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
+    }
+    match /profiles/{pid}{ allow read: if isLinked(); allow write: if isAdmin(); }
+    match /preferences/{pid}{ allow read: if isLinked(); allow create,update,delete: if isLinked() && (pid == myProfile() || isAdmin()); }
+    match /pushTokens/{uid}{
+      allow get: if isLinked() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create,update: if isLinked() && request.auth.uid == uid && request.resource.data.profileId == myProfile();
+      allow delete: if isLinked() && (request.auth.uid == uid || isAdmin());
+    }
+    match /notificationRequests/{id}{ allow create,read: if isAdmin(); allow update,delete: if false; }
+    match /config/{docId}{ allow read: if isLinked(); allow write: if isAdmin(); }
+    match /legacyStatus/{docId}{ allow read: if isLinked(); allow write: if isAdmin(); }
+    match /availability/{docId}{
+      allow read: if isLinked();
+      // L'administrateur TEST peut simuler tous les profils ; les autres restent limités au leur.
+      allow create: if isLinked()
+        && request.resource.data.date is string
+        && request.resource.data.profileId is string
+        && docId == request.resource.data.date + '_' + request.resource.data.profileId
+        && (isAdmin() || request.resource.data.profileId == myProfile());
+      allow update: if isLinked()
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.profileId == resource.data.profileId
+        && (isAdmin() || resource.data.profileId == myProfile());
+      allow delete: if isLinked()
+        && (isAdmin() || resource.data.profileId == myProfile());
+    }
+    match /compatibilities/{docId}{
+      allow read: if isLinked();
+      allow create: if isLinked()
+        && request.resource.data.date is string
+        && request.resource.data.ownerId is string
+        && request.resource.data.responderId is string
+        && docId == request.resource.data.date + '_' + request.resource.data.ownerId + '_' + request.resource.data.responderId
+        && (isAdmin() || request.resource.data.responderId == myProfile());
+      allow update: if isLinked()
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.responderId == resource.data.responderId
+        && (isAdmin() || resource.data.responderId == myProfile());
+      allow delete: if isLinked()
+        && (isAdmin() || resource.data.responderId == myProfile());
+    }
+    match /plans/{date}{ allow read,write: if isLinked(); }
+    match /tripDays/{date}{ allow read,write: if isLinked(); }
+    match /delleTrips/{date}{
+      allow read: if isLinked() && (myProfile() == 'igor' || myProfile() == 'ludo');
+      allow create,update: if isLinked()
+        && (myProfile() == 'igor' || myProfile() == 'ludo')
+        && request.resource.data.privatePair == 'igor_ludo'
+        && request.resource.data.destination == 'Delle'
+        && request.resource.data.driver in ['igor','ludo'];
+      allow delete: if isLinked() && (myProfile() == 'igor' || myProfile() == 'ludo');
+    }
+
+    // PHASE 1 MULTI-EQUIPES — règles candidates, non publiées dans Firebase.
+    // Les collections historiques à la racine restent inchangées jusqu'à une migration validée.
+    function isPlatformAdmin(){
+      return signedIn()
+        && exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)).data.active == true;
+    }
+    function teamLinkExists(){
+      return signedIn() && exists(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid));
+    }
+    function linkedTeamId(){
+      return get(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)).data.teamId;
+    }
+    function linkedMemberId(){
+      return get(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)).data.memberId;
+    }
+    function isTeamMember(teamId){
+      return teamLinkExists()
+        && linkedTeamId() == teamId
+        && exists(/databases/$(database)/documents/memberDirectory/$(linkedMemberId()))
+        && get(/databases/$(database)/documents/memberDirectory/$(linkedMemberId())).data.teamId == teamId
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId()))
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId())).data.active == true;
+    }
+    function isTeamLeader(teamId){
+      return isTeamMember(teamId)
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId())).data.role == 'leader';
+    }
+    function canManageTeam(teamId){ return isPlatformAdmin() || isTeamLeader(teamId); }
+    function canReadTeam(teamId){ return isPlatformAdmin() || isTeamMember(teamId); }
+    function validTeamAvailabilityId(documentId,data){
+      return data.date is string && data.memberId is string
+        && documentId == data.date + '_' + data.memberId;
+    }
+    function validTeamCompatibilityId(documentId,data){
+      return data.date is string && data.ownerId is string && data.responderId is string
+        && documentId == data.date + '_' + data.ownerId + '_' + data.responderId;
+    }
+    function isDelleTeamViewer(teamId){
+      return teamId == 'wm-original'
+        && (isPlatformAdmin()
+          || (isTeamMember(teamId) && linkedMemberId() in ['igor','ludo']));
+    }
+
+    // Identité globale : préprovisionnée par superadministrateur, jamais par un utilisateur.
+    // Un memberId possède un seul teamId immuable, même si plusieurs appareils sont liés.
+    match /platformAdmins/{uid}{
+      allow get: if signedIn() && (request.auth.uid == uid || isPlatformAdmin());
+      allow list: if isPlatformAdmin();
+      allow create,update,delete: if false; // initialisation hors client / Admin SDK
+    }
+    match /memberDirectory/{memberId}{
+      allow get: if isPlatformAdmin()
+        || (teamLinkExists() && linkedMemberId() == memberId);
+      allow list: if isPlatformAdmin();
+      allow create: if isPlatformAdmin()
+        && request.resource.data.teamId is string
+        && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId));
+      allow update: if isPlatformAdmin()
+        && request.resource.data.teamId == resource.data.teamId;
+      allow delete: if false;
+    }
+
+    // Nouveau système de liens (aucune modification des anciens deviceLinks).
+    match /teamDeviceLinks/{uid}{
+      allow get: if signedIn() && (request.auth.uid == uid || isPlatformAdmin());
+      allow list: if isPlatformAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && !exists(/databases/$(database)/documents/deviceLinks/$(uid))
+        && request.resource.data.keys().hasAll(['teamId','memberId','inviteToken'])
+        && request.resource.data.keys().hasOnly(['teamId','memberId','inviteToken','createdAt','userAgent'])
+        && request.resource.data.teamId is string
+        && request.resource.data.memberId is string
+        && request.resource.data.inviteToken is string
+        && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/invitations/$(request.resource.data.inviteToken))
+        && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/invitations/$(request.resource.data.inviteToken)).data.active == true
+        && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/invitations/$(request.resource.data.inviteToken)).data.memberId == request.resource.data.memberId
+        && exists(/databases/$(database)/documents/memberDirectory/$(request.resource.data.memberId))
+        && get(/databases/$(database)/documents/memberDirectory/$(request.resource.data.memberId)).data.teamId == request.resource.data.teamId
+        && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/members/$(request.resource.data.memberId))
+        && get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)/members/$(request.resource.data.memberId)).data.active == true;
+      allow update: if false;
+      allow delete: if signedIn() && (request.auth.uid == uid || isPlatformAdmin());
+    }
+
+    match /teams/{teamId}{
+      allow get,list: if canReadTeam(teamId);
+      allow create: if isPlatformAdmin()
+        && request.resource.data.name is string
+        && request.resource.data.status in ['draft','active'];
+      allow update: if isPlatformAdmin()
+        || (isTeamLeader(teamId)
+          && request.resource.data.name is string
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','description']));
+      allow delete: if false;
+
+      match /members/{memberId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create: if isPlatformAdmin()
+          && request.resource.data.keys().hasAll(['firstName','displayName','shortCode','role','active'])
+          && request.resource.data.keys().hasOnly(['firstName','displayName','shortCode','role','active','joinedAt'])
+          && request.resource.data.role in ['member','leader']
+          && request.resource.data.active is bool
+          && request.resource.data.shortCode is string
+          && request.resource.data.shortCode.matches('^[A-Z][a-z0-9]{0,7}$')
+          && getAfter(/databases/$(database)/documents/memberDirectory/$(memberId)).data.teamId == teamId
+          && getAfter(/databases/$(database)/documents/teams/$(teamId)/shortCodes/$(request.resource.data.shortCode)).data.memberId == memberId;
+        allow update: if isPlatformAdmin()
+          && request.resource.data.shortCode == resource.data.shortCode
+          && request.resource.data.role in ['member','leader']
+          && request.resource.data.active is bool;
+        allow delete: if false; // conserver les noms/codes des historiques
+      }
+      match /shortCodes/{code}{
+        allow get,list: if canReadTeam(teamId);
+        allow create: if isPlatformAdmin()
+          && request.resource.data.keys().hasOnly(['memberId'])
+          && request.resource.data.memberId is string
+          && code.matches('^[A-Z][a-z0-9]{0,7}$')
+          && getAfter(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId)).data.shortCode == code;
+        allow update,delete: if false; // réservation permanente, même après départ
+      }
+      match /invitations/{token}{
+        allow get: if signedIn(); // un appareil non associé peut consulter son lien personnel
+        allow list: if canManageTeam(teamId);
+        allow create: if canManageTeam(teamId)
+          && request.resource.data.keys().hasAll(['memberId','active'])
+          && request.resource.data.keys().hasOnly(['memberId','active','createdAt'])
+          && request.resource.data.memberId is string
+          && request.resource.data.active == true
+          && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId))
+          && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId)).data.active == true;
+        allow update: if canManageTeam(teamId)
+          && request.resource.data.active is bool
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active']);
+        allow delete: if isPlatformAdmin();
+      }
+      match /availability/{documentId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create: if canReadTeam(teamId)
+          && validTeamAvailabilityId(documentId,request.resource.data)
+          && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId))
+          && (isPlatformAdmin() || request.resource.data.memberId == linkedMemberId());
+        allow update: if canReadTeam(teamId)
+          && validTeamAvailabilityId(documentId,resource.data)
+          && request.resource.data.date == resource.data.date
+          && request.resource.data.memberId == resource.data.memberId
+          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId());
+        allow delete: if canReadTeam(teamId)
+          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId());
+      }
+      match /compatibilities/{documentId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create: if canReadTeam(teamId)
+          && validTeamCompatibilityId(documentId,request.resource.data)
+          && (isPlatformAdmin() || request.resource.data.responderId == linkedMemberId());
+        allow update: if canReadTeam(teamId)
+          && validTeamCompatibilityId(documentId,resource.data)
+          && request.resource.data.date == resource.data.date
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.responderId == resource.data.responderId
+          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId());
+        allow delete: if canReadTeam(teamId)
+          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId());
+      }
+      match /plans/{date}{
+        allow get,list: if canReadTeam(teamId);
+        allow create,update: if canReadTeam(teamId)
+          && request.resource.data.date == date;
+        allow delete: if canReadTeam(teamId);
+      }
+      match /tripDays/{date}{
+        allow get,list: if canReadTeam(teamId);
+        allow create,update: if canReadTeam(teamId)
+          && request.resource.data.date == date;
+        allow delete: if canReadTeam(teamId);
+      }
+      match /preferences/{memberId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create,update,delete: if canReadTeam(teamId)
+          && (isPlatformAdmin() || linkedMemberId() == memberId);
+      }
+      match /config/{docId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create,update,delete: if isPlatformAdmin()
+          || (isTeamLeader(teamId) && docId == 'calendar');
+      }
+      match /legacyStatus/{documentId}{
+        allow get,list: if canReadTeam(teamId);
+        allow create,update,delete: if isPlatformAdmin();
+      }
+      match /pushTokens/{uid}{
+        allow get: if isPlatformAdmin()
+          || (isTeamMember(teamId) && request.auth.uid == uid);
+        allow list: if isPlatformAdmin();
+        allow create,update: if isTeamMember(teamId)
+          && request.auth.uid == uid
+          && request.resource.data.memberId == linkedMemberId();
+        allow delete: if isPlatformAdmin()
+          || (isTeamMember(teamId) && request.auth.uid == uid);
+      }
+      match /notificationRequests/{id}{
+        allow get,list: if canManageTeam(teamId);
+        allow create: if canManageTeam(teamId);
+        allow update,delete: if false;
+      }
+      // Exemption privée du binôme Delle, uniquement dans l'équipe d'origine.
+      match /delleTrips/{date}{
+        allow get,list: if isDelleTeamViewer(teamId);
+        allow create,update: if isDelleTeamViewer(teamId)
+          && request.resource.data.privatePair == 'igor_ludo'
+          && request.resource.data.destination == 'Delle'
+          && request.resource.data.driver in ['igor','ludo'];
+        allow delete: if isDelleTeamViewer(teamId);
+      }
+    }
+
+    match /{document=**}{ allow read,write: if false; }
+  }
+}

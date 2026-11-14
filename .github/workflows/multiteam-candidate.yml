@@ -1,0 +1,30 @@
+name: Préparation multi-équipes — sécurité candidate
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Vérifier l’architecture et les codes courts
+        run: node --test tests/multi-team-core.test.mjs
+      - name: Installer l’émulateur local (aucun accès Firebase réel)
+        run: npm install --no-save --no-audit --no-fund firebase@13.3.0 @firebase/rules-unit-testing@6.0.0 firebase-tools@15.36.0
+      - name: Tester les règles candidates et la compatibilité avec les règles historiques
+        run: |
+          npx firebase emulators:exec --config firestore.rules-multiteam.firebase.json --only firestore --project demo-teamtool-multiteam \
+            'TEAM_RULES_FILE=firestore.rules.multiteam.candidate.txt TEAM_RULES_PROJECT=demo-teamtool-multiteam node --test --test-concurrency=1 tests/firestore-rules.emulator.mjs tests/firestore-multiteam.emulator.mjs'
