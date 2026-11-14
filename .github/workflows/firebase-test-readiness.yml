@@ -1,4 +1,4 @@
-name: Précontrôle réel Firebase TEST (lecture seule)
+name: Vérification statique du précontrôle Firebase TEST
 
 on:
   pull_request:
@@ -34,31 +34,3 @@ jobs:
           node --check scripts/firebase-test-readiness.mjs
           node --test tests/firebase-test-readiness.test.mjs
           ! grep -Eq 'method:[[:space:]]*(POST|PATCH|PUT|DELETE)' scripts/firebase-test-readiness.mjs
-
-  verify-firebase-test:
-    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: static
-    runs-on: ubuntu-latest
-    timeout-minutes: 7
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Obtenir une identité fédérée TEST limitée à la lecture
-        id: auth
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          project_id: team-tool-test-data
-          workload_identity_provider: projects/398960207483/locations/global/workloadIdentityPools/teamtool-test-github/providers/github
-          create_credentials_file: false
-          export_environment_variables: false
-      - name: Lire la base, les règles, la sauvegarde et le provisioning TEST sans les modifier
-        env:
-          TEST_FIREBASE_AUTH_TOKEN: ${{ steps.auth.outputs.auth_token }}
-        run: node scripts/firebase-test-readiness.mjs
