@@ -28,4 +28,5 @@ jobs:
       - name: Tester les règles candidates et la compatibilité avec les règles historiques
         run: |
           npx firebase emulators:exec --config firestore.rules-multiteam.firebase.json --only firestore --project demo-teamtool-multiteam \
-            'TEAM_RULES_FILE=firestore.rules.multiteam.candidate.txt TEAM_RULES_PROJECT=demo-teamtool-multiteam node --test --test-concurrency=1 tests/firestore-rules.emulator.mjs tests/firestore-multiteam.emulator.mjs'
+            'TEAM_RULES_FILE=firestore.rules.multiteam.candidate.txt TEAM_RULES_PROJECT=demo-teamtool-multiteam node --test --test-concurrency=1 tests/firestore-rules.emulator.mjs tests/firestore-multiteam.emulator.mjs tests/phase4-copy.emulator.mjs'
+
