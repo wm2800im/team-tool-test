@@ -50,3 +50,10 @@ test('l’administrateur peut délivrer le premier lien au responsable non encor
  assert.match(app,/await issuePlatformLeaderInvite\(createdId\)/);
  assert.match(app,/Copier le lien du responsable/);
 });
+
+test('un ancien appareil lié ne peut pas absorber une invitation d’une autre équipe',()=>{
+ assert.match(app,/if\(MULTI_TEAM_RUNTIME && params\.get\('team'\) && invite\)/);
+ assert.match(app,/Cet appareil est déjà associé à l’équipe historique/);
+ assert.match(app,/if\(teamInvite&&await getDoc\(doc\(db,'deviceLinks',authUser\.uid\)\)/);
+ assert.match(app,/fenêtre privée ou un autre navigateur/);
+});
