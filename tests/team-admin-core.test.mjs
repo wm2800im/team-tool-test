@@ -12,8 +12,8 @@ test('composition de deux à cinq membres avec responsable unique',()=>{
     assert.equal(new Set(created.members.map(m=>m.memberId)).size,n);
   }
   assert.throws(()=>prepareTeamCreation({teamId:'x',name:'Test',firstNames:['A','B']}),/prénom|Identifiant/);
-  assert.throws(()=>prepareTeamCreation({teamId:'team-b',name:'Test',firstNames:['Anna']}),/2 à 5/);
-  assert.throws(()=>prepareTeamCreation({teamId:'team-b',name:'Test',firstNames:Array(6).fill('Anna')}),/2 à 5/);
+  assert.throws(()=>prepareTeamCreation({teamId:'team-b',name:'Test',firstNames:['Anna']}),/2 et 5/);
+  assert.throws(()=>prepareTeamCreation({teamId:'team-b',name:'Test',firstNames:Array(6).fill('Anna')}),/2 et 5/);
 });
 test('identifiants globaux stables, indépendants des prénoms',()=>{
  const team=prepareTeamCreation({teamId:'team-b',name:'Collègues',firstNames:['Zoé','Zoé','Inès']});
