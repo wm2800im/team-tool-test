@@ -183,7 +183,7 @@ async function ensureQuotaBaseline(){
   try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
 }
 function scheduleQuotaBaselineRebuild(date){
-  if(!date||date>=HISTORY_LIVE_START)return;
+  if(activeTeamId||!date||date>=HISTORY_LIVE_START)return;
   const dirtyAtMs=Date.now();
   const dirtyWrite=markQuotaBaselineDirty(dirtyAtMs).catch(e=>{console.warn('Marqueur historique',e);return dirtyAtMs;});
   if(linkedProfileId!=='igor')return;
@@ -1140,7 +1140,7 @@ function exportHistoryCSV(){
 }
 
 async function queueAdminBroadcastTest(){
-  if(linkedProfileId!=='igor'){alert('Action réservée à Igor.');return;}
+  if(activeTeamId||linkedProfileId!=='igor'){alert('Action réservée à l’administration historique.');return;}
   if(!confirm('Envoyer une notification de test à tous les appareils ayant activé les notifications ?'))return;
   const btn=$('adminBroadcastTestBtn'),state=$('adminBroadcastState');
   if(btn){btn.disabled=true;btn.textContent='Envoi demandé…';}
@@ -1721,6 +1721,7 @@ async function readCompleteSnapshot(){
   return data;
 }
 async function exportTestSnapshot(){
+  if(activeTeamId)throw new Error('Export de l’équipe à valider avant activation.');
   if(linkedProfileId!=='igor')return;
   try{
     const data=await readCompleteSnapshot();
@@ -1752,6 +1753,7 @@ async function previewTestSnapshot(){
   }catch(e){panel.textContent='Import refusé avant toute écriture : '+e.message;}
 }
 async function importTestSnapshot(){
+  if(activeTeamId)throw new Error('Import multi-équipes désactivé.');
   if(!IS_TEST||linkedProfileId!=='igor')return;
   const f=$('testSnapshotFile').files?.[0];
   if(!f||f!==inspectedTestSnapshot){alert('Analyse d’abord le fichier à importer.');return;}
