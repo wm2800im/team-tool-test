@@ -14,12 +14,14 @@ import {
 } from './quota-core.mjs';
 import {SNAPSHOT_SCHEMA,SNAPSHOT_COLLECTIONS,encodeSnapshotValue,decodeSnapshotValue,validateSnapshot} from './snapshot-core.mjs';
 import {collectionSegments,documentSegments,normalizeTeamRoster,parseTeamInvite,validateLinkedTeam} from './team-runtime-core.mjs';
+import {prepareTeamCreation,parseTeamNames,teamInvitationUrl} from './team-admin-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
 const APP_VERSION = ENV.version || '4.8.1';
 const IS_TEST = ENV.environment === 'test';
 // Off jusqu'à l'accord de mise en service TEST. L'ancien parcours reste prioritaire.
 const MULTI_TEAM_RUNTIME = IS_TEST && ENV.enableMultiTeamRuntime === true;
+const TEAM_ADMIN_TEST = MULTI_TEAM_RUNTIME && firebaseConfig.projectId === 'team-tool-test-data';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -42,11 +44,12 @@ let LABELS = {aurelien:'Aurélien',etienne:'Étienne',igor:'Igor',ludo:'Ludo',st
 let INITIAL = {aurelien:'A',etienne:'E',igor:'I',ludo:'L',stephane:'S'};
 let activeTeamId = null;
 let activeTeamName = '';
+let activeTeamLeaderId = null;
 const dataCollection=name=>collection(db,...collectionSegments(activeTeamId,name));
 const dataDoc=(name,id)=>doc(db,...documentSegments(activeTeamId,name,id));
 function useTeamRoster(rows){
   const roster=normalizeTeamRoster(rows);
-  PEOPLE=roster.members;LABELS=roster.labels;INITIAL=roster.initials;
+  PEOPLE=roster.members;LABELS=roster.labels;INITIAL=roster.initials;activeTeamLeaderId=roster.leaderId;
 }
 const STATUS = {
   present:{label:'Présent',cls:'present'}, absent:{label:'Absent',cls:'absent'},
@@ -198,7 +201,7 @@ const $ = id => document.getElementById(id);
 const qsa = sel => [...document.querySelectorAll(sel)];
 const label = id => LABELS[id] || profiles.get(id)?.name || id;
 const canonical = arr => [...new Set(arr)].sort((a,b)=>label(a).localeCompare(label(b),'fr'));
-const groupCode = arr => canonical(arr).map(p=>INITIAL[p]||'?').join('');
+const groupCode = arr => canonical(arr).map(p=>INITIAL[p]||'?').join(activeTeamId?' · ':'');
 const tripGroupsForDate = d => tripDays.get(d)?.groups || [];
 const iso = d => {
   const x = new Date(d);
@@ -553,6 +556,7 @@ function initStaticUI(){
   $('notificationsToggle').addEventListener('change',toggleNotifications); $('localNotificationTestBtn')?.addEventListener('click',testLocalNotification); $('copyFcmTokenBtn')?.addEventListener('click',copyFcmToken); qsa('[data-theme]').forEach(b=>b.addEventListener('click',()=>saveTheme(b.dataset.theme)));
   $('addCalendarException').addEventListener('click',addCalendarException); $('exportTestSnapshot').addEventListener('click',exportTestSnapshot); $('importTestSnapshot').addEventListener('click',importTestSnapshot); $('testSnapshotFile').addEventListener('change',previewTestSnapshot); $('adminBroadcastTestBtn')?.addEventListener('click',queueAdminBroadcastTest);
   $('testUserSwitch').addEventListener('change',()=>switchTestUser($('testUserSwitch').value));
+  $('createTeamBtn')?.addEventListener('click',createNewTeam);
   setInterval(()=>{ if($('tomorrow')?.classList.contains('active')) renderTomorrow(); },60000);
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').style.display='inline-block';});
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(console.warn);
@@ -637,7 +641,7 @@ function renderTomorrow(){
   const mineSummary=$('myTomorrowSummary'); if(mineSummary)mineSummary.textContent='';
   const box=$('collectiveTomorrow');box.innerHTML='';let answered=0;
   PEOPLE.forEach(p=>{const v=getAvail(ds,p);if(v)answered++;const m=collectiveStatusMeta(ds,p,v);const row=document.createElement('div');row.className='person-row compact-person';row.innerHTML=`<div class="avatar">${INITIAL[p]}</div><div class="grow"><strong>${label(p)}</strong></div><span class="pill ${m.cls}">${m.label}</span>`;box.appendChild(row);});
-  const count=document.createElement('div');count.className='responses-count';count.textContent=`${answered}/5 renseignés`;box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderDellePrivate(ds); renderUnvalidatedTripAlert();
+  const count=document.createElement('div');count.className='responses-count';count.textContent=answered+'/'+PEOPLE.length+' renseignés';box.appendChild(count); renderTimeCompatibility(ds,mine); renderQuickProposal(ds); renderDellePrivate(ds); renderUnvalidatedTripAlert();
 }
 function renderTimeCompatibility(ds,mine){
   const box=$('timeCompatibilityBox');
@@ -1067,6 +1071,10 @@ function currentGroupCounterSummary(trips){
   }).sort((a,b)=>a.members.length-b.members.length||a.code.localeCompare(b.code,'fr'));
 }
 function groupBalanceFilterLetters(value){
+  if(activeTeamId){
+    const valid=new Set(PEOPLE.map(p=>INITIAL[p]?.toUpperCase()).filter(Boolean));
+    return [...new Set(String(value||'').toUpperCase().split(/[\s,;·]+/).filter(code=>valid.has(code)))];
+  }
   const valid=new Set(PEOPLE.map(p=>INITIAL[p]).filter(Boolean));
   return [...new Set(String(value||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').filter(ch=>valid.has(ch)))];
 }
@@ -1074,7 +1082,7 @@ function groupBalanceMatches(code,value){
   const letters=groupBalanceFilterLetters(value);
   if(!letters.length)return false;
   const normalized=String(code||'').toUpperCase();
-  return letters.every(ch=>normalized.includes(ch));
+  return letters.every(ch=>activeTeamId?normalized.split(' · ').includes(ch):normalized.includes(ch));
 }
 function renderGroupCounterSummary(trips){
   const host=$('groupBalanceList'),countHost=$('groupBalanceCount'),filter=$('groupBalanceFilter');
@@ -1083,7 +1091,7 @@ function renderGroupCounterSummary(trips){
   const letters=groupBalanceFilterLetters(rawFilter);
   if(!letters.length){
     if(countHost)countHost.textContent='—';
-    host.innerHTML='<div class="empty">Tape une ou plusieurs initiales : A, E, I, L ou S.</div>';
+    host.textContent='Tape un ou plusieurs codes membres : '+PEOPLE.map(p=>INITIAL[p]).join(', ')+'.';
     return;
   }
   const summaries=currentGroupCounterSummary(trips).filter(item=>groupBalanceMatches(item.code,rawFilter));
@@ -1150,8 +1158,120 @@ async function queueAdminBroadcastTest(){
   finally{if(btn){btn.disabled=false;btn.textContent='🔔 Envoyer à tous';}}
 }
 
+
+async function isProvisionedPlatformAdmin(){
+  if(!TEAM_ADMIN_TEST||activeTeamId||!authUser)return false;
+  const snap=await getDoc(doc(db,'platformAdmins',authUser.uid));
+  return snap.exists()&&snap.data()?.active===true;
+}
+async function renderPlatformTeams(){
+  const panel=$('platformTeamsBlock'),status=$('teamCreateState'),button=$('createTeamBtn'),list=$('platformTeamsList');
+  if(!TEAM_ADMIN_TEST)return;
+  panel.style.display='block';
+  button.disabled=true;
+  status.textContent='Vérification des droits Firebase TEST…';
+  try{
+    if(!await isProvisionedPlatformAdmin()){
+      status.textContent='Superadministrateur non provisionné : création désactivée.';
+      return;
+    }
+    const snap=await getDocs(collection(db,'teams'));
+    list.replaceChildren();
+    for(const item of snap.docs){
+      const row=document.createElement('div');row.className='admin-item';
+      row.textContent=(item.data().name||item.id)+' · '+item.id+' · '+(item.data().status||'');
+      list.appendChild(row);
+    }
+    button.disabled=false;status.textContent='Création disponible sur Firebase TEST.';
+  }catch(e){status.textContent='Gestion multi-équipes indisponible : '+friendlyError(e);}
+}
+async function createNewTeam(){
+  const status=$('teamCreateState'),button=$('createTeamBtn');
+  if(!TEAM_ADMIN_TEST||activeTeamId)return;
+  button.disabled=true;
+  try{
+    if(!await isProvisionedPlatformAdmin())throw new Error('Accès superadministrateur requis.');
+    const prepared=prepareTeamCreation({
+      teamId:$('newTeamId').value.trim(),name:$('newTeamName').value,
+      firstNames:parseTeamNames($('newTeamMembers').value)
+    });
+    if(prepared.teamId==='wm-original')throw new Error('Équipe historique protégée.');
+    if(!confirm('Créer '+prepared.name+' avec '+prepared.members.length+' membres dans Firebase TEST ?'))return;
+    status.textContent='Création atomique de l’équipe et de ses membres…';
+    const teamRef=doc(db,'teams',prepared.teamId);
+    const directoryRefs=prepared.members.map(m=>doc(db,'memberDirectory',m.memberId));
+    await runTransaction(db,async tx=>{
+      const team=await tx.get(teamRef);
+      const directory=await Promise.all(directoryRefs.map(ref=>tx.get(ref)));
+      if(team.exists()||directory.some(s=>s.exists()))
+        throw new Error('Identifiant d’équipe ou de membre déjà utilisé.');
+      tx.set(teamRef,{name:prepared.name,status:'active',capacity:5,createdAt:serverTimestamp()});
+      prepared.members.forEach((member,i)=>{
+        const {memberId,firstName,displayName,shortCode,role,active}=member;
+        tx.set(directoryRefs[i],{teamId:prepared.teamId});
+        tx.set(doc(db,'teams',prepared.teamId,'members',memberId),
+          {firstName,displayName,shortCode,role,active,joinedAt:serverTimestamp()});
+        tx.set(doc(db,'teams',prepared.teamId,'shortCodes',shortCode),{memberId});
+      });
+    });
+    $('newTeamId').value='';$('newTeamName').value='';$('newTeamMembers').value='';
+    await renderPlatformTeams();
+    status.textContent='Équipe créée. Les invitations peuvent être générées par son responsable.';
+  }catch(e){status.textContent='Création refusée : '+friendlyError(e);}
+  finally{button.disabled=!TEAM_ADMIN_TEST;}
+}
+async function renderTeamAdministration(){
+  const panel=$('teamMemberAdminBlock'),list=$('teamMemberInvites'),state=$('teamMemberAdminState');
+  if(!TEAM_ADMIN_TEST||!activeTeamId||activeTeamLeaderId!==linkedProfileId)return;
+  panel.style.display='block';list.textContent='Chargement…';state.textContent='';
+  try{
+    const invitations=await getDocs(dataCollection('invitations'));
+    const all=invitations.docs.map(d=>({token:d.id,...d.data()}));
+    list.replaceChildren();
+    for(const memberId of PEOPLE){
+      const current=all.filter(x=>x.memberId===memberId&&x.active===true)
+        .sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))[0];
+      const row=document.createElement('div');row.className='admin-item';
+      const name=document.createElement('strong');name.textContent=label(memberId);row.appendChild(name);
+      if(current){
+        const url=teamInvitationUrl(baseAppUrl(),activeTeamId,current.token);
+        const box=document.createElement('div');box.className='linkbox';box.textContent=url;row.appendChild(box);
+        const copy=document.createElement('button');copy.className='btn secondary smallbtn';copy.textContent='Copier le lien';
+        copy.addEventListener('click',()=>navigator.clipboard.writeText(url).then(()=>toast('Lien copié')).catch(e=>alert(friendlyError(e))));
+        row.appendChild(copy);
+      }
+      const regenerate=document.createElement('button');
+      regenerate.className='btn secondary smallbtn';
+      regenerate.textContent=current?'Régénérer':'Créer un lien';
+      regenerate.addEventListener('click',()=>regenerateTeamInvitation(memberId,all));
+      row.appendChild(regenerate);list.appendChild(row);
+    }
+  }catch(e){list.textContent='Accès aux invitations refusé : '+friendlyError(e);}
+}
+async function regenerateTeamInvitation(memberId,all){
+  if(!TEAM_ADMIN_TEST||!activeTeamId||activeTeamLeaderId!==linkedProfileId)return;
+  if(!PEOPLE.includes(memberId))throw new Error('Membre hors équipe.');
+  if(!confirm('Créer un nouveau lien pour '+label(memberId)+' ? Les appareils déjà liés resteront associés.'))return;
+  const state=$('teamMemberAdminState');state.textContent='Génération du lien…';
+  try{
+    const old=all.filter(x=>x.memberId===memberId&&x.active===true),token=randomToken();
+    const batch=writeBatch(db);
+    old.forEach(x=>batch.update(dataDoc('invitations',x.token),{active:false}));
+    batch.set(dataDoc('invitations',token),{memberId,active:true,createdAt:serverTimestamp()});
+    await batch.commit();
+    state.textContent='Lien généré pour '+label(memberId)+'.';
+    await renderTeamAdministration();
+  }catch(e){state.textContent='Erreur : '+friendlyError(e);}
+}
+
 async function renderAdmin(){
-  if(activeTeamId||linkedProfileId!=='igor')return; $('inviteList').innerHTML='<div class="muted">Chargement…</div>'; $('deviceList').innerHTML='<div class="muted">Chargement…</div>';
+  $('legacyAdminContent').style.display=activeTeamId?'none':'block';
+  $('platformTeamsBlock').style.display='none';
+  $('teamMemberAdminBlock').style.display='none';
+  if(activeTeamId){await renderTeamAdministration();return;}
+  if(linkedProfileId!=='igor')return;
+  if(TEAM_ADMIN_TEST)renderPlatformTeams().catch(console.error);
+  $('inviteList').innerHTML='<div class="muted">Chargement…</div>'; $('deviceList').innerHTML='<div class="muted">Chargement…</div>';
   try{
     const [invSnap,devSnap]=await Promise.all([getDocs(collection(db,'invitations')),getDocs(collection(db,'deviceLinks'))]); const invs=invSnap.docs.map(d=>({token:d.id,...d.data()})); $('inviteList').innerHTML='';
     PEOPLE.forEach(pid=>{const active=invs.filter(x=>x.profileId===pid&&x.active===true).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))[0];const div=document.createElement('div');div.className='admin-item';if(active){const url=`${baseAppUrl()}?invite=${active.token}`;div.innerHTML=`<strong>${label(pid)}</strong><div class="linkbox">${url}</div><div class="row"><button class="btn secondary smallbtn copy-invite" data-url="${url}">Copier le lien</button><button class="btn danger smallbtn regen-invite" data-pid="${pid}">Régénérer</button></div>`;}else div.innerHTML=`<strong>${label(pid)}</strong><div class="small muted">Aucun lien actif.</div><button class="btn secondary smallbtn regen-invite" data-pid="${pid}">Créer un lien</button>`;$('inviteList').appendChild(div);});
@@ -1185,7 +1305,7 @@ function resolvedTheme(theme){ if(theme==='dark'||theme==='light')return theme; 
 function applyTheme(){ const theme=pref(profileId).theme||'auto'; document.documentElement.dataset.theme=resolvedTheme(theme); qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme)); }
 async function saveTheme(theme){ const previous=pref(profileId),optimistic={...previous,theme};preferences.set(profileId,optimistic);applyTheme();renderSettings();try{await setDoc(dataDoc('preferences',profileId),{theme,updatedAt:serverTimestamp()},{merge:true});}catch(e){preferences.set(profileId,previous);applyTheme();renderSettings();alert(friendlyError(e));} }
 function initSettingsUI(){
-  $('aboutVersion').textContent=APP_VERSION; $('testBanner').style.display=IS_TEST?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; $('adminMenuBlock').style.display=!activeTeamId&&linkedProfileId==='igor'?'block':'none';
+  $('aboutVersion').textContent=APP_VERSION; $('testBanner').style.display=IS_TEST?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; $('adminMenuBlock').style.display=(!activeTeamId&&linkedProfileId==='igor')||(TEAM_ADMIN_TEST&&activeTeamId&&linkedProfileId===activeTeamLeaderId)?'block':'none';
   if(IS_TEST){$('testUserSwitch').innerHTML=PEOPLE.map(p=>`<option value="${p}">${label(p)}</option>`).join('');$('testUserSwitch').value=profileId;}
   renderSettings();
 }
@@ -1208,7 +1328,7 @@ function ensureNotificationRecheckButton(){
 }
 function renderSettings(){
   if(!$('menuProfileName'))return; $('menuProfileName').textContent=IS_TEST&&profileId!==linkedProfileId?`${label(linkedProfileId)} · simulation ${label(profileId)}`:label(profileId); $('aboutVersion').textContent=APP_VERSION;
-  $('adminMenuBlock').style.display=!activeTeamId&&linkedProfileId==='igor'?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; if(IS_TEST&&!activeTeamId)$('testUserSwitch').value=profileId;
+  $('adminMenuBlock').style.display=(!activeTeamId&&linkedProfileId==='igor')||(TEAM_ADMIN_TEST&&activeTeamId&&linkedProfileId===activeTeamLeaderId)?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; if(IS_TEST&&!activeTeamId)$('testUserSwitch').value=profileId;
   const theme=pref(profileId).theme||'auto'; qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme));
   const np=pref(linkedProfileId), permission=notificationPermissionState(), simulated=IS_TEST&&profileId!==linkedProfileId;
   const toggle=$('notificationsToggle'), status=$('notificationStatus'), recheck=ensureNotificationRecheckButton();

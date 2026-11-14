@@ -149,11 +149,29 @@
   </div>
 </section>
 
-<section id="admin" class="page"><div class="card"><h1>Administration</h1><p class="muted">Réservé à Igor.</p>
+<section id="admin" class="page"><div class="card"><h1>Administration</h1><div id="legacyAdminContent"><p class="muted">Réservé à Igor.</p>
   <div class="admin-grid"><div><h2>Liens personnels</h2><div id="inviteList"></div></div><div><h2>Appareils associés</h2><div id="deviceList"></div></div></div>
   <div class="card inset"><h2>Notifications</h2><p class="muted">Envoie une notification de test à tous les appareils dont les notifications sont activées.</p><div class="row"><button id="adminBroadcastTestBtn" class="btn secondary">🔔 Envoyer à tous</button><span id="adminBroadcastState" class="small muted"></span></div></div>
   <div class="card inset"><h2>Calendrier de travail</h2><p class="muted">Week-ends et jours fériés officiels du canton du Jura sont exclus automatiquement. Ajoute ici uniquement les exceptions Willemin-Macodel.</p><div class="row"><div class="field"><label>Date</label><input id="calendarDate" type="date"></div><div class="field"><label>Exception</label><select id="calendarType"><option value="off">Jour non travaillé</option><option value="on">Jour travaillé exceptionnellement</option></select></div><div class="field grow"><label>Note</label><input id="calendarNote" placeholder="ex. fermeture entreprise"></div><button id="addCalendarException" class="btn secondary">Ajouter</button></div><div id="calendarExceptions"></div></div>
   <div class="card inset"><h2>Environnement de test</h2><p class="muted">Copie JSON versionnée, y compris les trajets Delle, mais sans invitations, appareils ni jetons de notification. Dans TEST, l’import est une <strong>fusion sans suppression</strong> : il peut remplacer les documents ayant le même identifiant. Une copie locale de sécurité est proposée avant toute écriture.</p><div class="row"><button id="exportTestSnapshot" class="btn secondary">Exporter une copie JSON</button><div id="testImportBlock" style="display:none"><input id="testSnapshotFile" type="file" accept="application/json,.json"><button id="importTestSnapshot" class="btn" disabled>Fusionner dans TEST</button></div></div><div id="snapshotAnalysis" class="small muted" style="white-space:pre-wrap;margin-top:10px" aria-live="polite">Choisir un fichier JSON pour examiner son contenu.</div></div>
+</div>
+  <div id="platformTeamsBlock" class="card inset" style="display:none">
+    <h2>Créer une équipe de covoiturage</h2>
+    <p class="small muted">Espace TEST uniquement. Le premier membre est responsable. Création atomique dans Firebase avec contrôle du rôle de superadministrateur.</p>
+    <div class="row">
+      <div class="field grow"><label for="newTeamId">Identifiant de l'équipe</label><input id="newTeamId" placeholder="ex. equipe-atelier"></div>
+      <div class="field grow"><label for="newTeamName">Nom affiché</label><input id="newTeamName" placeholder="ex. Équipe atelier"></div>
+    </div>
+    <div class="field"><label for="newTeamMembers">Prénoms des 2 à 5 membres (une ligne par personne)</label><textarea id="newTeamMembers" rows="5" placeholder="Responsable&#10;Collègue 2&#10;Collègue 3"></textarea></div>
+    <div class="row"><button id="createTeamBtn" class="btn secondary" type="button">Créer cette équipe TEST</button><span id="teamCreateState" class="small muted" role="status"></span></div>
+    <div id="platformTeamsList" class="small muted"></div>
+  </div>
+  <div id="teamMemberAdminBlock" class="card inset" style="display:none">
+    <h2>Invitations de mon équipe</h2>
+    <p class="small muted">Chaque membre reçoit un lien individuel. Les anciens liens peuvent être remplacés sans déconnecter les appareils déjà associés.</p>
+    <div id="teamMemberInvites"></div>
+    <div id="teamMemberAdminState" class="small muted" role="status"></div>
+  </div>
 </div></section>
 </main>
 </div>

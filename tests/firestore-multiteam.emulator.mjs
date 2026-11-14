@@ -221,3 +221,33 @@ test('Le brouillon protège les données migrées même avec un lien existant', 
   await assertSucceeds(getDoc(doc(ctx('igor'), at(A,'delleTrips',date))));
   await assertSucceeds(getDoc(doc(ctx('ludo'), 'deviceLinks/' + users.ludo.uid)));
 });
+
+
+test('Provisionnement atomique de cinq collègues TEST, sans accès croisé',async()=>{
+  const admin=ctx('igor'),teamId='atelier-c';
+  const names=['Claire','Chloé','Hugo','Nadia','Alex'];
+  const shortCodes=['C','Ch','H','N','A'];
+  const teamRef=ref(admin,'teams/'+teamId);
+  const batch=writeBatch(admin);
+  batch.set(teamRef,{name:'Atelier C',status:'active',capacity:5});
+  names.forEach((firstName,i)=>{
+    const memberId=teamId+'-m'+(i+1),shortCode=shortCodes[i];
+    batch.set(ref(admin,'memberDirectory/'+memberId),{teamId});
+    batch.set(ref(admin,at(teamId,'members',memberId)),{
+      firstName,displayName:firstName,shortCode,active:true,role:i===0?'leader':'member'
+    });
+    batch.set(ref(admin,at(teamId,'shortCodes',shortCode)),{memberId});
+  });
+  await assertSucceeds(batch.commit());
+  const leaderId=teamId+'-m1';
+  await assertSucceeds(setDoc(ref(admin,at(teamId,'invitations','token-claire')),{
+    memberId:leaderId,active:true
+  }));
+  const device=env.authenticatedContext('uid-claire-new').firestore();
+  await assertSucceeds(setDoc(ref(device,'teamDeviceLinks/uid-claire-new'),{
+    teamId,memberId:leaderId,inviteToken:'token-claire'
+  }));
+  await assertSucceeds(getDoc(ref(device,at(teamId,'members',teamId+'-m2'))));
+  await assertFails(getDoc(ref(device,at(B,'members','zoe'))));
+  await assertFails(getDoc(ref(ctx('alex'),at(teamId,'members',leaderId))));
+});

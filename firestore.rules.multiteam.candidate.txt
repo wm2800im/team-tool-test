@@ -134,7 +134,7 @@ service cloud.firestore {
       allow list: if isPlatformAdmin();
       allow create: if isPlatformAdmin()
         && request.resource.data.teamId is string
-        && exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId));
+        && getAfter(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.status in ['draft','active'];
       allow update: if isPlatformAdmin()
         && request.resource.data.teamId == resource.data.teamId;
       allow delete: if false;
