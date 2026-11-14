@@ -59,3 +59,20 @@ test('diagnostics compréhensibles sans divulguer de données',()=>{
  assert.match(safeApiDiagnostic(503),/HTTP 503/);
  assert.equal(safeApiDiagnostic(), 'erreur de lecture ou délai dépassé');
 });
+
+test('une sauvegarde d’une autre base TEST ne satisfait pas le précontrôle',()=>{
+ const now=new Date('2026-11-14T15:00:00Z');
+ const backup={database:'projects/team-tool-test-data/databases/recovery',state:'READY',
+   snapshotTime:'2026-11-14T12:00:00Z',expireTime:'2026-11-21T00:00:00Z'};
+ assert.equal(inspectBackups({backups:[backup]},now),false);
+});
+
+test('le déclencheur ne lance que le précontrôle TEST depuis main',()=>{
+ const dispatcher=readFileSync(new URL('../.github/workflows/firebase-test-readiness-dispatch.yml',import.meta.url),'utf8');
+ const access=readFileSync(new URL('../.github/workflows/firebase-test-access.yml',import.meta.url),'utf8');
+ assert.match(dispatcher,/github\.repository_id == '1356239565' && github\.ref == 'refs\/heads\/main'/);
+ assert.match(dispatcher,/repos\/wm2800im\/team-tool-test\/actions\/workflows\/firebase-test-access\.yml\/dispatches/);
+ assert.match(dispatcher,/-f ref=main/);
+ assert.doesNotMatch(dispatcher,/pull_request|checkout|id-token/);
+ assert.doesNotMatch(access,/testIamPermissions|team-tool-data/);
+});
