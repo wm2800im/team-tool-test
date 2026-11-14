@@ -80,7 +80,9 @@ export function simulateLegacyMigration(snapshot){
     name:'Équipe 1',description:'Équipe historique',status:'draft',capacity:5
   },'team');
   for(const member of LEGACY_MEMBERS){
-    const doc={...member,displayName:member.firstName,active:true};
+    // memberId est déjà la clé du document ; la règle candidate n'autorise pas ce champ en doublon.
+    const {memberId, ...fields}=member;
+    const doc={...fields,displayName:member.firstName,active:true};
     if(profileMap.has(member.memberId)) doc.legacyProfile=profileMap.get(member.memberId);
     add(teamPath(LEGACY_TEAM_ID,'members',member.memberId),doc,'member');
     add(teamPath(LEGACY_TEAM_ID,'shortCodes',member.shortCode),{memberId:member.memberId},'short-code');

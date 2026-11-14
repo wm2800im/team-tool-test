@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>TeamTool TEST — Simulation migration équipe historique</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#193149;background:#f2f6fa}
+*{box-sizing:border-box}body{margin:0;line-height:1.55}
+header{background:#17324e;color:#fff;padding:23px max(22px,calc((100vw - 980px)/2))}
+header h1{font-size:clamp(1.3rem,2.8vw,1.9rem);margin:0}
+header p{color:#cfdeec;margin:5px 0 0}a{color:inherit}
+main{max-width:980px;margin:25px auto;padding:0 18px 50px}
+.panel{background:white;border:1px solid #d8e0e8;border-radius:14px;padding:22px;margin:0 0 18px;box-shadow:0 2px 8px #16345010}
+h2{font-size:1.15rem;margin:0 0 12px}
+h3{font-size:1rem;margin:14px 0 7px}
+.note{background:#eef5fc;border-left:4px solid #487ead;padding:12px 14px;border-radius:6px}
+.warning{background:#fff5e7;border-left-color:#c88b2f}
+.small{font-size:.9rem;color:#4c6174}
+input[type=file]{width:100%;padding:13px;border:1px solid #afbfcd;border-radius:9px;background:#f9fbfd}
+button{font:inherit;background:#20547d;color:white;border:0;border-radius:9px;padding:9px 16px;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+.pill{display:inline-block;border-radius:20px;padding:4px 11px;font-size:.88rem;font-weight:700}
+.ok{background:#e3f3ea;color:#12613a}.bad{background:#ffebe8;color:#8f3024}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}
+.metric{border:1px solid #dfebf3;border-radius:10px;padding:12px;background:#f8fbff}
+.metric strong{display:block;font-size:1.4rem;color:#153f62}
+.metric span{color:#546d7e;font-size:.78rem}
+table{width:100%;border-collapse:collapse;font-size:.94rem}
+th,td{text-align:left;border-bottom:1px solid #e2eaf1;padding:9px}
+th{color:#496275;font-weight:700}
+ul{padding-left:22px}li{margin:5px 0}
+.output{margin:15px 0;white-space:pre-wrap}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+@media(max-width:670px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{padding:16px}}
+</style>
+</head>
+<body>
+<header>
+<h1>TeamTool TEST · Simulation de migration</h1>
+<p>Phase 2 — équipe actuelle vers la future architecture multi-équipes</p>
+</header>
+<main>
+<section class="panel">
+<div class="note"><strong>Simulation locale uniquement.</strong> Le fichier est analysé dans ton navigateur. Son contenu n'est pas envoyé à Firebase ni à GitHub. Aucune création, modification ou suppression dans Firestore.</div>
+<h2 style="margin-top:18px">1. Choisir une copie JSON de TEST</h2>
+<p>Depuis <a href="./">TeamTool TEST</a> : <strong>Administration → Exporter une copie JSON</strong>, puis sélectionne le fichier téléchargé ci-dessous. Utilise une copie récente au format v2.</p>
+<label for="migrationFile" class="small">Fichier de sauvegarde</label>
+<input id="migrationFile" type="file" accept=".json,application/json">
+<p class="small">Limite : 50 Mo. L'analyse comprend les cinq membres, les dates, les plans, les trajets et le binôme privé Delle.</p>
+</section>
+<section class="panel" id="summary" hidden aria-live="polite">
+<h2>2. Rapport de simulation</h2>
+<p class="row"><span class="pill" id="resultPill"></span><span id="resultSubtext" class="small"></span></p>
+<div class="grid">
+<div class="metric"><strong id="totalDocs">—</strong><span>documents métier sources</span></div>
+<div class="metric"><strong id="mappedDocs">—</strong><span>documents couverts</span></div>
+<div class="metric"><strong id="tripGroups">—</strong><span>groupes de trajets historiques</span></div>
+<div class="metric"><strong id="delleTrips">—</strong><span>trajets privés Delle</span></div>
+</div>
+<h3>Collections du fichier</h3>
+<div style="overflow-x:auto"><table><thead><tr><th>Collection</th><th>Source</th><th>Prévue</th></tr></thead><tbody id="collectionRows"></tbody></table></div>
+<h3>Membres et codes historiques</h3>
+<p class="small" id="members"></p>
+<div id="errorsContainer" hidden><h3>Blocages détectés</h3><ul id="errors"></ul></div>
+<h3>Avertissements</h3><ul id="warnings"></ul>
+<h3>Prérequis avant une vraie migration</h3><ul id="prerequisites"></ul>
+<p class="note warning"><strong>Important :</strong> même si la simulation est conforme, elle n'autorise pas une migration réelle. Les liens d'invitation, les appareils et les droits d'administrateur doivent encore être traités séparément. Aucune opération d'import n'est disponible sur cette page.</p>
+<button id="reportDownload" disabled>Télécharger le rapport (sans données individuelles)</button>
+</section>
+<section class="panel" id="errorPanel" hidden><h2>Lecture impossible</h2><p id="errorText" class="output"></p></section>
+<p class="small">Projet cible prévu : team-tool-test-data · Future équipe : wm-original · Production : non concernée.</p>
+</main>
+<script type="module" src="./migration-preview-ui.js"></script>
+</body>
+</html>
