@@ -208,3 +208,16 @@ test('Préférences et notifications isolées par équipe',async()=>{
   await assertSucceeds(setDoc(ref(ctx('zoe'),at(B,'notificationRequests','new')),{type:'test'}));
   await assertFails(setDoc(ref(ctx('zoe'),at(A,'notificationRequests','other')),{type:'test'}));
 });
+
+test('Le brouillon protège les données migrées même avec un lien existant', async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    await updateDoc(doc(context.firestore(), 'teams/' + A), {status:'draft'});
+  });
+  for (const name of ['ludo','aurelien','zoe']) {
+    await assertFails(getDoc(doc(ctx(name), 'teams/' + A)));
+    await assertFails(getDoc(doc(ctx(name), at(A,'delleTrips',date))));
+    await assertFails(getDocs(collection(ctx(name), 'teams/' + A + '/delleTrips')));
+  }
+  await assertSucceeds(getDoc(doc(ctx('igor'), at(A,'delleTrips',date))));
+  await assertSucceeds(getDoc(doc(ctx('ludo'), 'deviceLinks/' + users.ludo.uid)));
+});
