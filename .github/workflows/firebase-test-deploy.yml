@@ -2,6 +2,17 @@ name: Préparer le déploiement des règles Firebase TEST
 
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [plan, publish, rollback]
+        default: plan
+      expected_ruleset:
+        description: Identifiant du ruleset actif à vérifier
+        type: string
+      rollback_ruleset:
+        description: Identifiant du ruleset précédent issu de la sauvegarde
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +29,7 @@ jobs:
     if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/multiteam-candidate.yml
   plan:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
     needs: [application, rules]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -52,3 +64,93 @@ jobs:
           name: firebase-test-rules-plan
           path: release-plan/
           if-no-files-found: error
+
+  release:
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main' && inputs.operation != 'plan' && vars.FIREBASE_TEST_RELEASE_ENABLED == 'true'
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: firebase-test-rules
+    permissions:
+      id-token: write
+    env:
+      API: https://firebaserules.googleapis.com/v1/projects/team-tool-test-data
+      ROOT: projects/team-tool-test-data
+      EXPECTED: ${{ inputs.expected_ruleset }}
+      PREVIOUS: ${{ inputs.rollback_ruleset }}
+      OPERATION: ${{ inputs.operation }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firebase-test-rules-plan
+          path: release-plan
+      - name: Vérifier les paramètres et le paquet
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED" =~ ^[A-Za-z0-9_-]+$ ]]
+          if [[ "$OPERATION" == rollback ]]; then
+            [[ "$PREVIOUS" =~ ^[A-Za-z0-9_-]+$ && "$PREVIOUS" != "$EXPECTED" ]]
+          fi
+          (cd release-plan && sha256sum --check SHA256SUMS && [[ "$(cat COMMIT)" == "$GITHUB_SHA" ]])
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: team-tool-test-data
+          workload_identity_provider: ${{ vars.FIREBASE_TEST_RELEASE_PROVIDER }}
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Sauvegarder la release active
+        env:
+          TOKEN: ${{ steps.auth.outputs.auth_token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir rules-backup
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$API/releases/cloud.firestore" > rules-backup/release.json
+          jq -e --arg name "$ROOT/releases/cloud.firestore" --arg ruleset "$ROOT/rulesets/$EXPECTED" \
+            '.name == $name and .rulesetName == $ruleset' rules-backup/release.json
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$API/rulesets/$EXPECTED" > rules-backup/ruleset.json
+          jq -e --arg name "$ROOT/rulesets/$EXPECTED" \
+            '.name == $name and (.source.files | length > 0 and all(.[]; (.content | length > 0)))' rules-backup/ruleset.json
+          (cd rules-backup && sha256sum release.json ruleset.json > SHA256SUMS)
+          rm rules-backup/release.json rules-backup/ruleset.json
+      - name: Conserver et vérifier la sauvegarde privée
+        env:
+          TOKEN: ${{ steps.auth.outputs.auth_token }}
+          BACKUP_KEY: ${{ secrets.FIREBASE_TEST_RULES_BACKUP_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$BACKUP_KEY" ]]
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$API/releases/cloud.firestore" > rules-backup/release.json
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$API/rulesets/$EXPECTED" > rules-backup/ruleset.json
+          (cd rules-backup && sha256sum --check SHA256SUMS)
+          tar -C rules-backup -czf - . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_KEY -out firebase-test-rules-backup.tar.gz.enc
+          mkdir restored-backup
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_KEY -in firebase-test-rules-backup.tar.gz.enc | tar -xz -C restored-backup
+          (cd restored-backup && sha256sum --check SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firebase-test-rules-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: firebase-test-rules-backup.tar.gz.enc
+          if-no-files-found: error
+      - name: Mettre à jour et relire la release TEST
+        env:
+          TOKEN: ${{ steps.auth.outputs.auth_token }}
+        run: |
+          set -euo pipefail
+          request() { curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
+          if [[ "$OPERATION" == publish ]]; then
+            next=$(jq -n --rawfile content release-plan/firestore.rules.multiteam.candidate.txt \
+              '{source:{files:[{name:"firestore.rules",content:$content}]}}' |
+              request -X POST --data-binary @- "$API/rulesets" | jq -er .name)
+          else
+            next="$ROOT/rulesets/$PREVIOUS"
+            request "$API/rulesets/$PREVIOUS" | jq -e --arg name "$next" '.name == $name'
+          fi
+          [[ "$next" =~ ^projects/team-tool-test-data/rulesets/[A-Za-z0-9_-]+$ ]]
+          request "$API/releases/cloud.firestore" | jq -e --arg name "$ROOT/rulesets/$EXPECTED" '.rulesetName == $name'
+          jq -n --arg name "$ROOT/releases/cloud.firestore" --arg next "$next" \
+            '{release:{name:$name,rulesetName:$next},updateMask:"rulesetName"}' |
+            request -X PATCH --data-binary @- "$API/releases/cloud.firestore"
+          request "$API/releases/cloud.firestore" | jq -e --arg name "$next" '.rulesetName == $name'
