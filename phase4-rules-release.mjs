@@ -24,3 +24,17 @@ export function prepareRulesRollback({ bytes, sha256, current, deployedRuleset }
     throw new Error('La release TEST active a changé');
   return { name: releaseName, rulesetName: release.rulesetName };
 }
+
+export async function rehearseRulesRollback({ readRelease, readRuleset, expectedRuleset, deployedRuleset, storeBackup }) {
+  const initial = await readRelease();
+  if (!rulesetPattern.test(expectedRuleset) || initial?.rulesetName !== expectedRuleset)
+    throw new Error('Release initiale inattendue');
+  const backup = backupRules(initial, await readRuleset(expectedRuleset));
+  const stored = await storeBackup(backup);
+  return prepareRulesRollback({
+    bytes: stored,
+    sha256: backup.sha256,
+    current: await readRelease(),
+    deployedRuleset
+  });
+}
