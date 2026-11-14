@@ -46,7 +46,7 @@ export function makeArchiveBaseline({
   const encodeStatus = ({ id, data = {} }) => [
     String(id),
     String(data.date || String(id).slice(0, 10)),
-    String(data.profileId || ''),
+    String(data.profileId || data.memberId || ''),
     String(data.status || ''),
     data.time == null ? null : String(data.time)
   ];
