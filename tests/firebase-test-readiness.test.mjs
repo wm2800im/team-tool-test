@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {inspectProject,inspectDatabase,inspectRules,inspectBackups,inspectAdminDocs} from '../scripts/firebase-test-readiness.mjs';
 
 const database='projects/team-tool-test-data/databases/(default)';
@@ -35,4 +36,16 @@ test('admin explicitement provisionné par backend seulement',()=>{
  assert.equal(inspectAdminDocs(data),true);
  assert.equal(inspectAdminDocs({documents:[{name:data.documents[0].name,fields:{active:{booleanValue:false}}}]}),false);
  assert.equal(inspectAdminDocs({documents:[{name:'projects/team-tool-data/databases/(default)/documents/platformAdmins/uid',fields:{active:{booleanValue:true}}}]}),false);
+});
+
+test('le contrôle distant utilise uniquement le workflow manuel déjà autorisé',()=>{
+ const live=readFileSync(new URL('../.github/workflows/firebase-test-access.yml',import.meta.url),'utf8');
+ const staticWorkflow=readFileSync(new URL('../.github/workflows/firebase-test-readiness.yml',import.meta.url),'utf8');
+ assert.match(live,/workflow_dispatch:/);
+ assert.match(live,/github\.ref == 'refs\/heads\/main'/);
+ assert.match(live,/node scripts\/firebase-test-readiness\.mjs/);
+ assert.match(live,/team-tool-test-data/);
+ assert.match(live,/persist-credentials: false/);
+ assert.doesNotMatch(staticWorkflow,/verify-firebase-test:/);
+ assert.doesNotMatch(staticWorkflow,/id-token: write/);
 });

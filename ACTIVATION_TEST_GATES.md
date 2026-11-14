@@ -4,7 +4,7 @@ Autorisation de mise en service TEST donnée le 14/11/2026, **conditionnée** à
 
 ## Premier contrôle non destructif
 
-Le workflow `firebase-test-readiness.yml` s'exécute en lecture seule lors de sa fusion sur `main` ou manuellement via GitHub Actions. Il n'utilise que le projet `team-tool-test-data` (numéro `398960207483`) et l'identité fédérée de **vérification**, pas celle destinée à publier.
+Le script `scripts/firebase-test-readiness.mjs` est validé automatiquement hors réseau par le workflow `firebase-test-readiness.yml`. Sa vérification **réelle** est exécutée uniquement dans le workflow manuel existant `.github/workflows/firebase-test-access.yml` (« Vérifier l’accès Google Cloud TEST »), sous le fournisseur OIDC déjà restreint à ce workflow. Celui-ci contrôle le projet `team-tool-test-data` (numéro `398960207483`) et effectue en plus son contrôle historique des permissions de PROD, **sans écriture ni modification de PROD**. Le nouveau script ne cible que TEST.
 
 Il vérifie :
 - l'identité du projet et le statut de la base `(default)` ;
@@ -27,3 +27,7 @@ La présence d'une sauvegarde ne prouve **pas sa restauration**. Avant activatio
 Le connecteur GitHub utilisé ici ne permet pas de déclencher `workflow_dispatch` ni de provisionner un compte Firebase Admin : aucune opération de publication n'est assimilée à un simple succès de tests CI.
 
 **Interdiction :** aucun changement dans `wm2800im/team-tool`, `team-tool-data`, les collections historiques `/deviceLinks`, `/tripDays` ou les autres documents historiques. Aucun job de migration/copie en réel dans ce lot.
+
+## Constat du 14 novembre 2026
+
+Le premier essai de contrôle réel automatique par le nouveau workflow a été refusé par l'authentification fédérée Google Cloud : `unauthorized_client` / rejet par condition d'attribut. **Aucun accès Firebase n'a été accordé et aucune écriture n'a eu lieu**. Ce refus n'est pas contourné en élargissant les conditions OIDC ; la vérification réelle doit utiliser le workflow manuel de confiance, sur `main`. Aucun droit de publication n'est supposé actif en l'absence de ses preuves.
