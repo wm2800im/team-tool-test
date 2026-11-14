@@ -13,10 +13,13 @@ import {
   isValidBaseline, selectFreshBaseline, applyArchiveBaseline, replaceLiveEntries
 } from './quota-core.mjs';
 import {SNAPSHOT_SCHEMA,SNAPSHOT_COLLECTIONS,encodeSnapshotValue,decodeSnapshotValue,validateSnapshot} from './snapshot-core.mjs';
+import {collectionSegments,documentSegments,normalizeTeamRoster,parseTeamInvite,validateLinkedTeam} from './team-runtime-core.mjs';
 const ENV = globalThis.COVOIT_ENV || {};
 const firebaseConfig = ENV.firebaseConfig || {};
 const APP_VERSION = ENV.version || '4.8.1';
 const IS_TEST = ENV.environment === 'test';
+// Off jusqu'à l'accord de mise en service TEST. L'ancien parcours reste prioritaire.
+const MULTI_TEAM_RUNTIME = IS_TEST && ENV.enableMultiTeamRuntime === true;
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -34,9 +37,17 @@ let messagingForegroundListenerBound = false;
 let notificationRepairInFlight = false;
 let notificationRepairLastAt = 0;
 
-const PEOPLE = ['aurelien','etienne','igor','ludo','stephane'];
-const LABELS = {aurelien:'Aurélien',etienne:'Étienne',igor:'Igor',ludo:'Ludo',stephane:'Stéphane'};
-const INITIAL = {aurelien:'A',etienne:'E',igor:'I',ludo:'L',stephane:'S'};
+let PEOPLE = ['aurelien','etienne','igor','ludo','stephane'];
+let LABELS = {aurelien:'Aurélien',etienne:'Étienne',igor:'Igor',ludo:'Ludo',stephane:'Stéphane'};
+let INITIAL = {aurelien:'A',etienne:'E',igor:'I',ludo:'L',stephane:'S'};
+let activeTeamId = null;
+let activeTeamName = '';
+const dataCollection=name=>collection(db,...collectionSegments(activeTeamId,name));
+const dataDoc=(name,id)=>doc(db,...documentSegments(activeTeamId,name,id));
+function useTeamRoster(rows){
+  const roster=normalizeTeamRoster(rows);
+  PEOPLE=roster.members;LABELS=roster.labels;INITIAL=roster.initials;
+}
 const STATUS = {
   present:{label:'Présent',cls:'present'}, absent:{label:'Absent',cls:'absent'},
   alone:{label:'Seul',cls:'alone'}, time:{label:'Impératif',cls:'time'}, missing:{label:'Non renseigné',cls:'missing'}
@@ -86,8 +97,8 @@ let quotaBaselineRebuildTimer=null;
 
 const snapshotEntries=snap=>snap.docs.map(d=>[d.id,d.data()]);
 const plainDocs=snap=>snap.docs.map(d=>({id:d.id,data:d.data()}));
-const liveCollection=name=>query(collection(db,name),where(documentId(),'>=',HISTORY_LIVE_START));
-const archiveCollection=name=>query(collection(db,name),where(documentId(),'<',HISTORY_LIVE_START));
+const liveCollection=name=>query(dataCollection(name),where(documentId(),'>=',HISTORY_LIVE_START));
+const archiveCollection=name=>query(dataCollection(name),where(documentId(),'<',HISTORY_LIVE_START));
 
 function applyQuotaBaseline(baseline){
   if(!isValidBaseline(baseline,HISTORY_LIVE_START))throw new Error('Baseline historique invalide.');
@@ -102,7 +113,7 @@ function readLocalQuotaBaseline(){
 }
 async function readServerQuotaBaseline(){
   const names=Object.keys(QUOTA_BASELINE_DOC_IDS);
-  const snaps=await Promise.all(names.map(name=>getDoc(doc(db,'config',QUOTA_BASELINE_DOC_IDS[name]))));
+  const snaps=await Promise.all(names.map(name=>getDoc(dataDoc('config',QUOTA_BASELINE_DOC_IDS[name]))));
   if(snaps.some(x=>!x.exists()))return null;
   const parts=Object.fromEntries(names.map((name,i)=>[name,snaps[i].data()]));
   // Au premier lancement d'un nouveau mois, la baseline du mois précédent
@@ -113,7 +124,7 @@ async function readServerQuotaBaseline(){
 async function publishQuotaBaseline(baseline){
   if(linkedProfileId!=='igor')return false;
   const parts=splitBaselineParts(baseline),batch=writeBatch(db);
-  for(const [name,id] of Object.entries(QUOTA_BASELINE_DOC_IDS))batch.set(doc(db,'config',id),{...parts[name],updatedAt:serverTimestamp()});
+  for(const [name,id] of Object.entries(QUOTA_BASELINE_DOC_IDS))batch.set(dataDoc('config',id),{...parts[name],updatedAt:serverTimestamp()});
   await batch.commit();return true;
 }
 async function rebuildQuotaBaseline({publish=true}={}){
@@ -136,7 +147,7 @@ async function rebuildQuotaBaseline({publish=true}={}){
   }
   return baseline;
 }
-const quotaDirtyRef=()=>doc(db,'plans',QUOTA_DIRTY_PLAN_ID);
+const quotaDirtyRef=()=>dataDoc('plans',QUOTA_DIRTY_PLAN_ID);
 async function readQuotaDirtyAtMs(){
   const snap=await getDoc(quotaDirtyRef());
   return snap.exists()?Number(snap.data()?.dirtyAtMs||0):0;
@@ -172,7 +183,7 @@ async function ensureQuotaBaseline(){
   try{return await quotaBaselinePromise;}finally{quotaBaselinePromise=null;}
 }
 function scheduleQuotaBaselineRebuild(date){
-  if(!date||date>=HISTORY_LIVE_START)return;
+  if(activeTeamId||!date||date>=HISTORY_LIVE_START)return;
   const dirtyAtMs=Date.now();
   const dirtyWrite=markQuotaBaselineDirty(dirtyAtMs).catch(e=>{console.warn('Marqueur historique',e);return dirtyAtMs;});
   if(linkedProfileId!=='igor')return;
@@ -300,9 +311,18 @@ function launchLinkedApp(){
   showApp();
   linkedProfileId = linkedProfileId || profileId;
   $('identityName').textContent=label(profileId);
+  if(activeTeamId){
+    const h=$('activeTeamLabel');if(h){h.textContent=activeTeamName;h.style.display='block';}
+  }
   initStaticUI();
   initSettingsUI();
   setLoading('Optimisation des données…','Préparation de l’historique local.');
+  if(activeTeamId){
+    // Baselines historiques de l'ancienne base globales : ne jamais les partager entre équipes.
+    quotaBaselineReady=false;
+    subscribeSharedData();subscribeDellePrivate();
+    return;
+  }
   ensureQuotaBaseline().then(()=>{
     subscribeSharedData();
     subscribeDellePrivate();
@@ -373,6 +393,7 @@ async function associateInviteToken(invite){
 async function linkDeviceFromInput(){
   const input=$('deviceInviteInput');
   const token=extractInviteToken(input?.value);
+  const teamInvite=MULTI_TEAM_RUNTIME?parseTeamInvite(input?.value):null;
   showAccessError('');
   if(!token){
     showAccessError('Colle le lien personnel complet reçu sur WhatsApp, ou uniquement son code d’invitation.');
@@ -380,7 +401,7 @@ async function linkDeviceFromInput(){
   }
   try{
     setLoading('Liaison de cet appareil…','Vérification du lien personnel.');
-    const pid=await associateInviteToken(token);
+    const pid=teamInvite?await associateTeamInvite(teamInvite):await associateInviteToken(token);
     cleanInviteParam();
     launchLinkedApp();
     toast(`Cet appareil est maintenant associé à ${label(pid)}.`);
@@ -390,6 +411,36 @@ async function linkDeviceFromInput(){
   }
 }
 
+async function resolveLinkedTeam(uid){
+  const link=await getDoc(doc(db,'teamDeviceLinks',uid));
+  if(!link.exists())return false;
+  const {teamId,memberId}=link.data();
+  const [team,directory,member]=await Promise.all([
+    getDoc(doc(db,'teams',teamId)),
+    getDoc(doc(db,'memberDirectory',memberId)),
+    getDoc(doc(db,'teams',teamId,'members',memberId))
+  ]);
+  validateLinkedTeam({teamId,memberId,teamStatus:team.data()?.status,
+    directoryTeamId:directory.data()?.teamId,memberActive:member.data()?.active});
+  const roster=await getDocs(collection(db,'teams',teamId,'members'));
+  useTeamRoster(roster.docs.map(d=>({memberId:d.id,...d.data()})));
+  activeTeamId=teamId;activeTeamName=team.data().name||teamId;
+  profileId=memberId;linkedProfileId=memberId;
+  return true;
+}
+async function associateTeamInvite({teamId,token}){
+  // Un compte non associé ne peut pas lire les membres ni l'annuaire.
+  // Les règles contrôlent ces documents lors de la création du lien.
+  const invitation=await getDoc(doc(db,'teams',teamId,'invitations',token));
+  if(!invitation.exists()||invitation.data()?.active!==true)
+    throw new Error('L’invitation d’équipe n’est pas active.');
+  const memberId=invitation.data().memberId;
+  await setDoc(doc(db,'teamDeviceLinks',authUser.uid),{
+    teamId,memberId,inviteToken:token,createdAt:serverTimestamp(),userAgent:navigator.userAgent.slice(0,300)
+  });
+  if(!await resolveLinkedTeam(authUser.uid))throw new Error('Liaison non confirmée.');
+  return memberId;
+}
 async function resolveDeviceIdentity(){
   const uid=authUser.uid;
   const linkRef=doc(db,'deviceLinks',uid);
@@ -400,6 +451,14 @@ async function resolveDeviceIdentity(){
     profileId=linkSnap.data().profileId; linkedProfileId=profileId;
     if(invite) cleanInviteParam();
     return;
+  }
+  if(MULTI_TEAM_RUNTIME){
+    if(await resolveLinkedTeam(uid)){if(invite)cleanInviteParam();return;}
+    const teamInvite=parseTeamInvite(location.href);
+    if(teamInvite){
+      try{await associateTeamInvite(teamInvite);cleanInviteParam();return;}
+      catch(e){showAccess(e?.message||friendlyError(e));return;}
+    }
   }
   if(!invite){ showAccess(); return; }
   setLoading('Association de cet appareil…','Vérification du lien personnel.');
@@ -412,7 +471,7 @@ async function resolveDeviceIdentity(){
   }
 }
 function cleanInviteParam(){
-  const u=new URL(location.href); u.searchParams.delete('invite'); history.replaceState({},'',u.pathname+u.search+u.hash);
+  const u=new URL(location.href);u.searchParams.delete('invite');u.searchParams.delete('team');history.replaceState({},'',u.pathname+u.search+u.hash);
 }
 function friendlyError(err){
   const c=err?.code||'';
@@ -438,7 +497,7 @@ function subscribeSharedData(){
   let initialRendered=false;
   let deferredStarted=false;
   const criticalNames=['profiles','availability','compatibilities','plans','preferences','calendar'];
-  const largeRef=name=>quotaBaselineReady?liveCollection(name):collection(db,name);
+  const largeRef=name=>quotaBaselineReady?liveCollection(name):dataCollection(name);
   const mergeOrReplace=(map,snap)=>{
     if(quotaBaselineReady)replaceLiveEntries(map,snapshotEntries(snap),HISTORY_LIVE_START);
     else{map.clear();snapshotEntries(snap).forEach(([id,data])=>map.set(id,data));}
@@ -462,12 +521,18 @@ function subscribeSharedData(){
     unsubscribers.push(off);
   };
   watch('tripDays',largeRef('tripDays'),snap=>{mergeOrReplace(tripDays,snap);tripDaysReady=true;});
-  watch('profiles',collection(db,'profiles'),snap=>{profiles=new Map(snap.docs.map(d=>[d.id,d.data()]));});
+  watch('profiles',dataCollection('profiles'),snap=>{
+    profiles=new Map(snap.docs.map(d=>[d.id,{...d.data(),name:d.data().displayName||d.data().firstName||d.id}]));
+    if(activeTeamId){
+      try{useTeamRoster(snap.docs.map(d=>({memberId:d.id,...d.data()})));}
+      catch(e){showConnectionAlert('Composition de l’équipe invalide');console.error(e);}
+    }
+  });
   watch('availability',largeRef('availability'),snap=>{mergeOrReplace(availability,snap);});
   watch('compatibilities',largeRef('compatibilities'),snap=>{mergeOrReplace(compatibilities,snap);});
   watch('plans',largeRef('plans'),snap=>{mergeOrReplace(plans,snap);});
-  watch('preferences',collection(db,'preferences'),snap=>{preferences=new Map(snap.docs.map(d=>[d.id,d.data()]));});
-  const offCalendar=onSnapshot(doc(db,'config','calendar'),snap=>{calendarConfig=snap.exists()?snap.data():{exceptions:[]};initializedSnapshots.add('calendar');completeInitial();if(initialRendered)refreshForData('calendar');},err=>{console.error('calendar',err);initializedSnapshots.add('calendar');completeInitial();});
+  watch('preferences',dataCollection('preferences'),snap=>{preferences=new Map(snap.docs.map(d=>[d.id,d.data()]));});
+  const offCalendar=onSnapshot(dataDoc('config','calendar'),snap=>{calendarConfig=snap.exists()?snap.data():{exceptions:[]};initializedSnapshots.add('calendar');completeInitial();if(initialRendered)refreshForData('calendar');},err=>{console.error('calendar',err);initializedSnapshots.add('calendar');completeInitial();});
   unsubscribers.push(offCalendar);
 }
 
@@ -526,12 +591,12 @@ async function handleTomorrowStatus(st){
 }
 async function setAvailability(date,status,time=null){
   const key=availKey(date,profileId), previous=availability.get(key);
-  const optimistic={date,profileId,status,time:status==='time'?time:null,updatedByUid:authUser.uid};
+  const optimistic={date,profileId,...(activeTeamId?{memberId:profileId}:{}),status,time:status==='time'?time:null,updatedByUid:authUser.uid};
   availability.set(key,optimistic);
   if(activePage('tomorrow'))renderTomorrow(); if(activePage('planning'))renderPlanning(); if(activePage('groups'))renderGroups(); if(activePage('history'))renderSummary();
   toast(`${fmtDate(date,{weekday:'short',day:'numeric',month:'short'})} : ${statusMeta(optimistic).label} · enregistrement…`);
   try{
-    await setDoc(doc(db,'availability',key),{...optimistic,updatedAt:serverTimestamp()});
+    await setDoc(dataDoc('availability',key),{...optimistic,updatedAt:serverTimestamp()});
     scheduleQuotaBaselineRebuild(date);toast('✓ Enregistré');
   }catch(e){
     if(previous)availability.set(key,previous);else availability.delete(key);
@@ -540,7 +605,7 @@ async function setAvailability(date,status,time=null){
 }
 async function clearAvailability(date){
   const key=availKey(date,profileId),previous=availability.get(key); availability.delete(key); refreshForData('availability'); toast('Saisie supprimée · enregistrement…');
-  try{await deleteDoc(doc(db,'availability',key));scheduleQuotaBaselineRebuild(date);toast('✓ Enregistré');}catch(e){if(previous)availability.set(key,previous);refreshForData('availability');alert(friendlyError(e));}
+  try{await deleteDoc(dataDoc('availability',key));scheduleQuotaBaselineRebuild(date);toast('✓ Enregistré');}catch(e){if(previous)availability.set(key,previous);refreshForData('availability');alert(friendlyError(e));}
 }
 
 function renderAll(){
@@ -601,7 +666,7 @@ async function saveCompatibility(date,owner,response){
   const ownerV=getAvail(date,owner); if(ownerV?.status!=='time')return; const key=compatKey(date,owner,profileId),previous=compatibilities.get(key);
   const optimistic={date,ownerId:owner,responderId:profileId,response,ownerTime:ownerV.time}; compatibilities.set(key,optimistic);
   if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups(); toast(response==='yes'?'Compatibilité validée · enregistrement…':'Incompatibilité enregistrée · enregistrement…');
-  try{await setDoc(doc(db,'compatibilities',key),{...optimistic,updatedAt:serverTimestamp()});toast('✓ Enregistré');}
+  try{await setDoc(dataDoc('compatibilities',key),{...optimistic,updatedAt:serverTimestamp()});toast('✓ Enregistré');}
   catch(e){if(previous)compatibilities.set(key,previous);else compatibilities.delete(key);refreshForData('compatibilities');alert(friendlyError(e));}
 }
 
@@ -674,7 +739,7 @@ async function applyRange(){
   while(d<=end){
     const ds=iso(d);
     if(isWorkingDayISO(ds)){
-      jobs.push(setDoc(doc(db,'availability',availKey(ds,profileId)),{date:ds,profileId,status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));
+      jobs.push(setDoc(dataDoc('availability',availKey(ds,profileId)),{date:ds,profileId,...(activeTeamId?{memberId:profileId}:{}),status:st,time:st==='time'?tm:null,updatedAt:serverTimestamp(),updatedByUid:authUser.uid}));
       if(ds<HISTORY_LIVE_START){archiveTouched=true;firstArchiveDate=firstArchiveDate||ds;}
       n++;
     }
@@ -828,7 +893,7 @@ async function savePlan(date,groups){
   const previous=plans.get(date); const normalized=groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver}));
   plans.set(date,{date,groups:normalized,updatedBy:profileId});
   if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups'))renderGroups();
-  try{await setDoc(doc(db,'plans',date),{date,groups:normalized,updatedAt:serverTimestamp(),updatedBy:profileId});scheduleQuotaBaselineRebuild(date);}
+  try{await setDoc(dataDoc('plans',date),{date,groups:normalized,updatedAt:serverTimestamp(),updatedBy:profileId});scheduleQuotaBaselineRebuild(date);}
   catch(e){if(previous)plans.set(date,previous);else plans.delete(date);refreshForData('plans');throw e;}
 }
 function renderDraftGroups(ds){
@@ -872,7 +937,7 @@ async function assertLiveGroupStatus(date,members){
   if(isPastDate(date))return; // Les corrections historiques restent autorisées.
   // Lecture serveur juste avant écriture : le groupe ne peut contenir « Seul » ou « Absent ».
   const current=await Promise.all(members.map(async p=>{
-    const snap=await getDocFromServer(doc(db,'availability',availKey(date,p)));
+    const snap=await getDocFromServer(dataDoc('availability',availKey(date,p)));
     return {p,v:snap.exists()?snap.data():null};
   }));
   const invalid=current.filter(x=>!isAvailable(x.v));
@@ -886,7 +951,7 @@ async function assertLiveGroupStatus(date,members){
     }
   }
   const checked=await Promise.all(constraints.map(async c=>{
-    const snap=await getDocFromServer(doc(db,'compatibilities',compatKey(date,c.owner,c.responder)));
+    const snap=await getDocFromServer(dataDoc('compatibilities',compatKey(date,c.owner,c.responder)));
     return {constraint:c,response:snap.exists()?snap.data():null};
   }));
   const rejected=checked.filter(x=>x.response?.ownerTime===x.constraint.time&&x.response?.response==='no');
@@ -906,7 +971,7 @@ async function validateSingleGroupForDate(ds,g,planGroups=[]){
   await assertLiveGroupStatus(ds,members);
   const normalizedPlan=(planGroups.length?planGroups:displayedPlan(ds)).map(x=>({id:x.id||crypto.randomUUID(),members:canonical(x.members||x.participants||[]),driver:x.driver||x.driverId}));
   const normalizedGroup={id:g.id||crypto.randomUUID(),members,driver,source:IS_TEST?'test':'app'};
-  const tripRef=doc(db,'tripDays',ds),planRef=doc(db,'plans',ds);let merged=[];
+  const tripRef=dataDoc('tripDays',ds),planRef=dataDoc('plans',ds);let merged=[];
   await runTransaction(db,async tx=>{
     const snap=await tx.get(tripRef),existing=snap.exists()?(snap.data().groups||[]):[];
     const key=groupMembersKey(normalizedGroup);
@@ -947,7 +1012,7 @@ async function deleteHistoryGroup(date,id){
   if(activePage('tomorrow'))renderTomorrow();if(activePage('groups')){renderGroups();renderValidatedInfo(date);}if(activePage('history')){renderSummary();renderHistory();}
   toast('Trajet supprimé · enregistrement…');
   try{
-    if(groups.length)await setDoc(doc(db,'tripDays',date),{...day,groups,updatedAt:serverTimestamp(),updatedBy:profileId});else await deleteDoc(doc(db,'tripDays',date));
+    if(groups.length)await setDoc(dataDoc('tripDays',date),{...day,groups,updatedAt:serverTimestamp(),updatedBy:profileId});else await deleteDoc(dataDoc('tripDays',date));
     scheduleQuotaBaselineRebuild(date);toast('✓ Trajet supprimé');
   }catch(e){tripDays.set(date,previous);refreshForData('tripDays');alert(friendlyError(e));}
 }
@@ -1069,7 +1134,7 @@ function exportHistoryCSV(){
 }
 
 async function queueAdminBroadcastTest(){
-  if(linkedProfileId!=='igor'){alert('Action réservée à Igor.');return;}
+  if(activeTeamId||linkedProfileId!=='igor'){alert('Action réservée à l’administration historique.');return;}
   if(!confirm('Envoyer une notification de test à tous les appareils ayant activé les notifications ?'))return;
   const btn=$('adminBroadcastTestBtn'),state=$('adminBroadcastState');
   if(btn){btn.disabled=true;btn.textContent='Envoi demandé…';}
@@ -1086,7 +1151,7 @@ async function queueAdminBroadcastTest(){
 }
 
 async function renderAdmin(){
-  if(linkedProfileId!=='igor')return; $('inviteList').innerHTML='<div class="muted">Chargement…</div>'; $('deviceList').innerHTML='<div class="muted">Chargement…</div>';
+  if(activeTeamId||linkedProfileId!=='igor')return; $('inviteList').innerHTML='<div class="muted">Chargement…</div>'; $('deviceList').innerHTML='<div class="muted">Chargement…</div>';
   try{
     const [invSnap,devSnap]=await Promise.all([getDocs(collection(db,'invitations')),getDocs(collection(db,'deviceLinks'))]); const invs=invSnap.docs.map(d=>({token:d.id,...d.data()})); $('inviteList').innerHTML='';
     PEOPLE.forEach(pid=>{const active=invs.filter(x=>x.profileId===pid&&x.active===true).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0))[0];const div=document.createElement('div');div.className='admin-item';if(active){const url=`${baseAppUrl()}?invite=${active.token}`;div.innerHTML=`<strong>${label(pid)}</strong><div class="linkbox">${url}</div><div class="row"><button class="btn secondary smallbtn copy-invite" data-url="${url}">Copier le lien</button><button class="btn danger smallbtn regen-invite" data-pid="${pid}">Régénérer</button></div>`;}else div.innerHTML=`<strong>${label(pid)}</strong><div class="small muted">Aucun lien actif.</div><button class="btn secondary smallbtn regen-invite" data-pid="${pid}">Créer un lien</button>`;$('inviteList').appendChild(div);});
@@ -1118,9 +1183,9 @@ function closeSettingsMenu(){ $('menuBackdrop').style.display='none'; $('sideMen
 function pref(pid=profileId){ return preferences.get(pid)||{theme:'auto',notificationsEnabled:false}; }
 function resolvedTheme(theme){ if(theme==='dark'||theme==='light')return theme; return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
 function applyTheme(){ const theme=pref(profileId).theme||'auto'; document.documentElement.dataset.theme=resolvedTheme(theme); qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme)); }
-async function saveTheme(theme){ const previous=pref(profileId),optimistic={...previous,theme};preferences.set(profileId,optimistic);applyTheme();renderSettings();try{await setDoc(doc(db,'preferences',profileId),{theme,updatedAt:serverTimestamp()},{merge:true});}catch(e){preferences.set(profileId,previous);applyTheme();renderSettings();alert(friendlyError(e));} }
+async function saveTheme(theme){ const previous=pref(profileId),optimistic={...previous,theme};preferences.set(profileId,optimistic);applyTheme();renderSettings();try{await setDoc(dataDoc('preferences',profileId),{theme,updatedAt:serverTimestamp()},{merge:true});}catch(e){preferences.set(profileId,previous);applyTheme();renderSettings();alert(friendlyError(e));} }
 function initSettingsUI(){
-  $('aboutVersion').textContent=APP_VERSION; $('testBanner').style.display=IS_TEST?'block':'none'; $('testSwitchBlock').style.display=IS_TEST?'block':'none'; $('adminMenuBlock').style.display=linkedProfileId==='igor'?'block':'none';
+  $('aboutVersion').textContent=APP_VERSION; $('testBanner').style.display=IS_TEST?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; $('adminMenuBlock').style.display=!activeTeamId&&linkedProfileId==='igor'?'block':'none';
   if(IS_TEST){$('testUserSwitch').innerHTML=PEOPLE.map(p=>`<option value="${p}">${label(p)}</option>`).join('');$('testUserSwitch').value=profileId;}
   renderSettings();
 }
@@ -1143,11 +1208,12 @@ function ensureNotificationRecheckButton(){
 }
 function renderSettings(){
   if(!$('menuProfileName'))return; $('menuProfileName').textContent=IS_TEST&&profileId!==linkedProfileId?`${label(linkedProfileId)} · simulation ${label(profileId)}`:label(profileId); $('aboutVersion').textContent=APP_VERSION;
-  $('adminMenuBlock').style.display=linkedProfileId==='igor'?'block':'none'; $('testSwitchBlock').style.display=IS_TEST?'block':'none'; if(IS_TEST)$('testUserSwitch').value=profileId;
+  $('adminMenuBlock').style.display=!activeTeamId&&linkedProfileId==='igor'?'block':'none'; $('testSwitchBlock').style.display=IS_TEST&&!activeTeamId?'block':'none'; if(IS_TEST&&!activeTeamId)$('testUserSwitch').value=profileId;
   const theme=pref(profileId).theme||'auto'; qsa('[data-theme]').forEach(b=>b.classList.toggle('active',b.dataset.theme===theme));
   const np=pref(linkedProfileId), permission=notificationPermissionState(), simulated=IS_TEST&&profileId!==linkedProfileId;
   const toggle=$('notificationsToggle'), status=$('notificationStatus'), recheck=ensureNotificationRecheckButton();
   let checked=false,disabled=simulated,txt='Désactivé par défaut.',showRecheck=false;
+  if(activeTeamId){toggle.checked=false;toggle.disabled=true;status.textContent='Notifications multi-équipes en cours de validation.';if(recheck)recheck.style.display='none';return;}
   if(simulated){txt='Repasse sur Igor pour tester les notifications de cet appareil.';}
   else if(permission==='unsupported'){
     disabled=true;txt='Notifications non prises en charge par ce navigateur.';
@@ -1170,9 +1236,10 @@ function renderSettings(){
   $('simulatedBadge').style.display=simulated?'inline-block':'none'; $('simulatedBadge').textContent=simulated?`simule ${label(profileId)}`:'';
   if(canTestNotifications)setTimeout(()=>repairNotificationRegistration({force:false}).catch(e=>console.warn('Notification auto-repair',e)),0);
 }
-function switchTestUser(pid){ if(!IS_TEST||!PEOPLE.includes(pid))return; profileId=pid; $('identityName').textContent=label(pid); applyTheme(); renderAll(); renderSettings(); closeSettingsMenu(); toast(`Simulation : ${label(pid)}`); }
+function switchTestUser(pid){ if(!IS_TEST||activeTeamId||!PEOPLE.includes(pid))return; profileId=pid; $('identityName').textContent=label(pid); applyTheme(); renderAll(); renderSettings(); closeSettingsMenu(); toast(`Simulation : ${label(pid)}`); }
 
 async function initMessaging(){
+  if(activeTeamId)return false;
   if(!('Notification' in window) || !(await messagingSupported()))return false;
   if(!messaging)messaging=getMessaging(app);
   if('serviceWorker' in navigator && !messagingSwRegistration){
@@ -1195,7 +1262,7 @@ async function registerCurrentDevicePush(){
   const token=await getToken(messaging,{vapidKey:VAPID_KEY,serviceWorkerRegistration:messagingSwRegistration});
   if(!token)throw new Error('Impossible d’obtenir le jeton de notification de cet appareil.');
   currentFcmToken=token;
-  await setDoc(doc(db,'pushTokens',authUser.uid),{profileId:linkedProfileId,token,enabled:true,permission:'granted',userAgent:navigator.userAgent.slice(0,300),updatedAt:serverTimestamp()},{merge:true});
+  await setDoc(dataDoc('pushTokens',authUser.uid),{profileId:linkedProfileId,token,enabled:true,permission:'granted',userAgent:navigator.userAgent.slice(0,300),updatedAt:serverTimestamp()},{merge:true});
   return token;
 }
 async function repairNotificationRegistration({force=false}={}){
@@ -1233,11 +1300,11 @@ async function toggleNotifications(){
       if(permission==='default')permission=await Notification.requestPermission();
       if(permission!=='granted')throw new Error(permission==='denied'?notificationBlockedHelp():'Autorisation de notification non accordée.');
       await registerCurrentDevicePush();
-      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:true,updatedAt:serverTimestamp()},{merge:true});
+      await setDoc(dataDoc('preferences',linkedProfileId),{notificationsEnabled:true,updatedAt:serverTimestamp()},{merge:true});
       notificationRepairLastAt=Date.now();toast('✓ Notifications activées sur cet appareil.');
     }else{
-      await setDoc(doc(db,'preferences',linkedProfileId),{notificationsEnabled:false,updatedAt:serverTimestamp()},{merge:true});
-      await deleteDoc(doc(db,'pushTokens',authUser.uid)).catch(()=>{});
+      await setDoc(dataDoc('preferences',linkedProfileId),{notificationsEnabled:false,updatedAt:serverTimestamp()},{merge:true});
+      await deleteDoc(dataDoc('pushTokens',authUser.uid)).catch(()=>{});
       if(messaging)await deleteToken(messaging).catch(()=>{});
       currentFcmToken=null;notificationRepairLastAt=0;toast('Notifications désactivées.');
     }
@@ -1406,12 +1473,12 @@ async function openGroupEditor(ds,groupId){
 // DELLE_PRIVATE_START
 const DELLE_PAIR=['igor','ludo'];
 function isDelleViewer(){return DELLE_PAIR.includes(profileId);}
-function isDelleLinkedUser(){return DELLE_PAIR.includes(linkedProfileId);}
+function isDelleLinkedUser(){return (!activeTeamId||activeTeamId==='wm-original')&&DELLE_PAIR.includes(linkedProfileId);}
 function subscribeDellePrivate(){
   if(!isDelleLinkedUser()||delleUnsubscribe)return;
   delleTripsReady=false;delleTripsError='';
   try{
-    delleUnsubscribe=onSnapshot(collection(db,'delleTrips'),snap=>{
+    delleUnsubscribe=onSnapshot(dataCollection('delleTrips'),snap=>{
       delleTrips=new Map(snap.docs.map(d=>[d.id,{...d.data(),date:d.data().date||d.id}]));
       delleTripsReady=true;delleTripsError='';
       if(activePage('tomorrow'))renderDellePrivate(nextCarpoolISO());
@@ -1515,7 +1582,7 @@ async function writeDelleTrip(ds,driver,state,source){
   if(!DELLE_PAIR.includes(driver))throw new Error('Conducteur Delle invalide.');
   if(forced&&driver!==forced)throw new Error(`${label(forced)} doit conduire jusqu’à Delle car il conduit le groupe principal.`);
   const existing=delleTrips.get(ds),g=state.group;
-  await setDoc(doc(db,'delleTrips',ds),{date:ds,destination:'Delle',members:DELLE_PAIR,driver,mainGroupId:g?.id||null,mainGroupMembers:canonical(g?.members||g?.participants||[]),mainDriver,privatePair:'igor_ludo',source,validatedAt:existing?.validatedAt||serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId},{merge:true});
+  await setDoc(dataDoc('delleTrips',ds),{date:ds,destination:'Delle',members:DELLE_PAIR,driver,mainGroupId:g?.id||null,mainGroupMembers:canonical(g?.members||g?.participants||[]),mainDriver,privatePair:'igor_ludo',source,validatedAt:existing?.validatedAt||serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId},{merge:true});
 }
 async function saveDelleTrip(ds,driver){
   if(!isDelleViewer()||!isDelleLinkedUser())throw new Error('Accès réservé à Igor et Ludo.');
@@ -1533,7 +1600,7 @@ async function saveHistoricalDelleTrip(ds,driver){
 async function deleteDelleTrip(ds){
   if(!isDelleViewer()||!isDelleLinkedUser())return;
   if(!confirm(`Supprimer le trajet privé jusqu’à Delle du ${fmtDate(ds)} ?`))return;
-  try{await deleteDoc(doc(db,'delleTrips',ds));toast('Trajet Delle supprimé.');}catch(e){alert(friendlyError(e));}
+  try{await deleteDoc(dataDoc('delleTrips',ds));toast('Trajet Delle supprimé.');}catch(e){alert(friendlyError(e));}
 }
 // DELLE_PRIVATE_END
 
@@ -1598,7 +1665,7 @@ async function validateGroupsForDate(ds,groups){
   const existing=tripDays.get(ds),same=existing?.groups?.length&&normalizedGroupSignature(existing.groups)===normalizedGroupSignature(groups);if(existing?.groups?.length&&!same&&!confirm(`Des trajets sont déjà validés pour ${fmtDate(ds)}. Les remplacer ?`))return;
   const normalized=groups.map(g=>({id:g.id||crypto.randomUUID(),members:canonical(g.members),driver:g.driver,source:IS_TEST?'test':'app'})); const previousTrip=tripDays.get(ds),previousPlan=plans.get(ds);
   tripDays.set(ds,{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedBy:profileId}); plans.set(ds,{date:ds,groups:normalized,updatedBy:profileId}); if(activePage('tomorrow'))renderTomorrow(); if(activePage('groups')){renderGroups();renderValidatedInfo(ds);} if(activePage('history')){renderSummary();renderHistory();}
-  try{await Promise.all([setDoc(doc(db,'tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(doc(db,'plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);scheduleQuotaBaselineRebuild(ds);toast('✓ Trajet enregistré');}
+  try{await Promise.all([setDoc(dataDoc('tripDays',ds),{date:ds,groups:normalized,source:IS_TEST?'test':'app',updatedAt:serverTimestamp(),updatedBy:profileId}),setDoc(dataDoc('plans',ds),{date:ds,groups:normalized,validatedAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:profileId})]);scheduleQuotaBaselineRebuild(ds);toast('✓ Trajet enregistré');}
   catch(e){if(previousTrip)tripDays.set(ds,previousTrip);else tripDays.delete(ds);if(previousPlan)plans.set(ds,previousPlan);else plans.delete(ds);refreshForData('tripDays');refreshForData('plans');throw e;}
 }
 
@@ -1609,7 +1676,7 @@ async function resetTestTrip(ds){
   if(activePage('tomorrow'))renderTomorrow();if(activePage('groups')){renderGroups();renderValidatedInfo(ds);}if(activePage('history')){renderSummary();renderHistory();}
   toast('🧪 Trajet TEST réinitialisé · enregistrement…');
   try{
-    await Promise.all([deleteDoc(doc(db,'tripDays',ds)),deleteDoc(doc(db,'plans',ds))]);
+    await Promise.all([deleteDoc(dataDoc('tripDays',ds)),deleteDoc(dataDoc('plans',ds))]);
     scheduleQuotaBaselineRebuild(ds);toast('✓ Prêt pour un nouveau test');
   }catch(e){
     if(previousTrip)tripDays.set(ds,previousTrip);
@@ -1629,8 +1696,8 @@ function renderQualityChecks(){const items=qualityChecks(),box=$('qualityBox'),l
 function renderCalendarExceptions(){
   const box=$('calendarExceptions');if(!box)return;const xs=[...(calendarConfig?.exceptions||[])].sort((a,b)=>a.date.localeCompare(b.date));box.innerHTML=xs.length?xs.map((x,i)=>`<div class="calendar-item"><strong>${x.date}</strong><span class="pill ${x.type==='off'?'absent':'present'}">${x.type==='off'?'Non travaillé':'Travaillé'}</span><span class="grow small muted">${x.note||''}</span><button class="btn danger smallbtn remove-calendar" data-i="${i}">Suppr.</button></div>`).join(''):'<div class="small muted">Aucune exception entreprise.</div>';box.querySelectorAll('.remove-calendar').forEach(b=>b.addEventListener('click',()=>removeCalendarException(Number(b.dataset.i))));
 }
-async function addCalendarException(){const date=$('calendarDate').value;if(!date){alert('Choisis une date.');return;}const type=$('calendarType').value,note=$('calendarNote').value.trim(),xs=[...(calendarConfig?.exceptions||[])].filter(x=>x.date!==date);xs.push({date,type,note});await setDoc(doc(db,'config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});$('calendarNote').value='';toast('Exception calendrier ajoutée.');}
-async function removeCalendarException(i){const xs=[...(calendarConfig?.exceptions||[])];xs.splice(i,1);await setDoc(doc(db,'config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});toast('Exception supprimée.');}
+async function addCalendarException(){const date=$('calendarDate').value;if(!date){alert('Choisis une date.');return;}const type=$('calendarType').value,note=$('calendarNote').value.trim(),xs=[...(calendarConfig?.exceptions||[])].filter(x=>x.date!==date);xs.push({date,type,note});await setDoc(dataDoc('config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});$('calendarNote').value='';toast('Exception calendrier ajoutée.');}
+async function removeCalendarException(i){const xs=[...(calendarConfig?.exceptions||[])];xs.splice(i,1);await setDoc(dataDoc('config','calendar'),{exceptions:xs,updatedAt:serverTimestamp()},{merge:true});toast('Exception supprimée.');}
 
 // Lot D : fichiers versionnés, précontrôlés et fusionnés sans suppression automatique.
 let inspectedTestSnapshot=null;
@@ -1641,13 +1708,14 @@ async function readCompleteSnapshot(){
     const snap=await getDocsFromServer(collection(db,name));
     collections[name]=snap.docs.map(d=>({id:d.id,data:encodeSnapshotValue(d.data())}));
   }
-  const cal=await getDocFromServer(doc(db,'config','calendar'));
+  const cal=await getDocFromServer(dataDoc('config','calendar'));
   const data={schema:SNAPSHOT_SCHEMA,sourceProjectId:firebaseConfig.projectId,
     exportedAt:new Date().toISOString(),collections};
   if(cal.exists())data.calendar=encodeSnapshotValue(cal.data());
   return data;
 }
 async function exportTestSnapshot(){
+  if(activeTeamId)throw new Error('Export de l’équipe à valider avant activation.');
   if(linkedProfileId!=='igor')return;
   try{
     const data=await readCompleteSnapshot();
@@ -1679,6 +1747,7 @@ async function previewTestSnapshot(){
   }catch(e){panel.textContent='Import refusé avant toute écriture : '+e.message;}
 }
 async function importTestSnapshot(){
+  if(activeTeamId)throw new Error('Import multi-équipes désactivé.');
   if(!IS_TEST||linkedProfileId!=='igor')return;
   const f=$('testSnapshotFile').files?.[0];
   if(!f||f!==inspectedTestSnapshot){alert('Analyse d’abord le fichier à importer.');return;}
@@ -1713,7 +1782,7 @@ async function importTestSnapshot(){
       }
     }
     if(summary.hasCalendar)
-      await setDoc(doc(db,'config','calendar'),decodeSnapshotValue(summary.calendar,(s,n)=>new Timestamp(s,n),summary.schema));
+      await setDoc(dataDoc('config','calendar'),decodeSnapshotValue(summary.calendar,(s,n)=>new Timestamp(s,n),summary.schema));
     await rebuildQuotaBaseline({publish:true});
     panel.textContent='Fusion terminée : '+written+' documents écrits. Documents absents conservés.';
     toast('✓ Import TEST terminé · aucune suppression');
