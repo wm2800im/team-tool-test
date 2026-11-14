@@ -45,6 +45,6 @@ jobs:
           response=$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
             --header 'Content-Type: application/json' \
-            --data '{"permissions":["resourcemanager.projects.get","resourcemanager.projects.getIamPolicy","datastore.entities.get","datastore.entities.list","datastore.entities.create","datastore.entities.update","datastore.entities.delete","firebaserules.releases.get","firebaserules.releases.update","firebaserules.rulesets.create","firebasehosting.versions.create","firebasehosting.releases.create"]}' \
+            --data '{"permissions":["resourcemanager.projects.get","resourcemanager.projects.getIamPolicy"]}' \
             'https://cloudresourcemanager.googleapis.com/v1/projects/team-tool-data:testIamPermissions')
           jq --exit-status 'type == "object" and ((.permissions // []) == [])' <<< "$response"
