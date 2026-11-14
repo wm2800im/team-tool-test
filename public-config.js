@@ -3,7 +3,7 @@
 // La clé VAPID sera ajoutée lorsque les notifications seront configurées.
 globalThis.COVOIT_ENV = {
   environment: "test",
-  version: "4.8.3-test.4",
+  version: "4.8.3-test.5",
   enableMultiTeamRuntime: false, // Activation TEST réservée à la recette Firebase et à l’accord distinct.
   vapidKey: "BObxsvRa1RrgB1ZpCVRgoeamoVswv79wDIx7iM17lEx5jlsThjtocVSHyk4dhIK57Ym0c4JPhbGXRQkTQ8TOEGc",
   firebaseConfig: {
