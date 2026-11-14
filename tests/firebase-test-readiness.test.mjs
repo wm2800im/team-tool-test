@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {inspectProject,inspectDatabase,inspectRules,inspectBackups,inspectAdminDocs} from '../scripts/firebase-test-readiness.mjs';
+import {inspectProject,inspectDatabase,inspectRules,inspectBackups,inspectAdminDocs,safeApiDiagnostic} from '../scripts/firebase-test-readiness.mjs';
 
 const database='projects/team-tool-test-data/databases/(default)';
 const name='projects/team-tool-test-data/rulesets/abc-123';
 test('vérifier le projet et la base TEST exactement',()=>{
  assert.equal(inspectProject({projectId:'team-tool-test-data',name:'projects/398960207483'}),true);
  assert.equal(inspectProject({projectId:'team-tool-data',name:'projects/398960207483'}),false);
- assert.equal(inspectDatabase({name:database,type:'FIRESTORE_NATIVE',state:'ACTIVE'}),true);
- assert.equal(inspectDatabase({name:'projects/team-tool-data/databases/(default)',state:'ACTIVE',type:'FIRESTORE_NATIVE'}),false);
+ // La réponse REST Firestore Database n'a aucun champ state, contrairement aux backups.
+ assert.equal(inspectDatabase({name:database,type:'FIRESTORE_NATIVE'}),true);
+ assert.equal(inspectDatabase({name:database,type:'FIRESTORE_NATIVE',deleteTime:'2026-11-14T00:00:00Z'}),false);
+ assert.equal(inspectDatabase({name:'projects/team-tool-data/databases/(default)',type:'FIRESTORE_NATIVE'}),false);
 });
 test('rejeter les règles étrangères et les déploiements inattendus',()=>{
  const old="rules_version = '2';\n",next="rules_version = '3';\n";
@@ -48,4 +50,12 @@ test('le contrôle distant utilise uniquement le workflow manuel déjà autoris�
  assert.match(live,/persist-credentials: false/);
  assert.doesNotMatch(staticWorkflow,/verify-firebase-test:/);
  assert.doesNotMatch(staticWorkflow,/id-token: write/);
+});
+
+test('diagnostics compréhensibles sans divulguer de données',()=>{
+ assert.match(safeApiDiagnostic(403),/HTTP 403.*autorisation/);
+ assert.match(safeApiDiagnostic(404),/HTTP 404/);
+ assert.match(safeApiDiagnostic(429),/HTTP 429/);
+ assert.match(safeApiDiagnostic(503),/HTTP 503/);
+ assert.equal(safeApiDiagnostic(), 'erreur de lecture ou délai dépassé');
 });

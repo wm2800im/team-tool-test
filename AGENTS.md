@@ -1,6 +1,6 @@
 # Travail sur TeamTool TEST
 
-Périmètre exclusif wm2800im/team-tool-test. Lire ROADMAP.md et les PR ouvertes avant de choisir une tâche. Le coordinateur désigne une seule tâche prête, recherche les doublons et consigne propriétaire, preuve et prochaine action. Il poursuit la prochaine tâche prête après validation, dans la limite de la session.
+Périmètre exclusif wm2800im/team-tool-test. Appliquer aussi `METHODE_AUTONOME.md`. Lire ROADMAP.md et les PR ouvertes avant de choisir une tâche. Le coordinateur désigne une seule tâche prête, recherche les doublons et consigne propriétaire, preuve et prochaine action. Il poursuit la prochaine tâche prête après validation, dans la limite de la session.
 
 - Développement : branche dédiée, changements minimaux, préserver application et chemins historiques.
 - Tests : contrôler le SHA de la PR, les tests Node et les suites de règles sur projet demo-teamtool-multiteam. Reproduire les échecs avant fusion.
@@ -10,3 +10,5 @@ Périmètre exclusif wm2800im/team-tool-test. Lire ROADMAP.md et les PR ouvertes
 Les rôles peuvent être attribués à des sous-agents si la session le permet. Le coordinateur reste responsable des preuves et de la suite. Les écritures de migration, suppressions réelles, publications de règles et toute action PROD exigent des accords séparés. La bascule multi-équipes exige également son propre accord. Les tâches bloquées restent visibles et le coordinateur choisit un autre travail prêt.
 
 Vérifications locales : `node --test tests/*.test.mjs`. GitHub Actions contrôle aussi les règles historiques et candidates, la copie et le retour arrière sur émulateur. Documenter les limites et ne pas assimiler un job ignoré à un test réussi.
+
+Pour les échecs techniques ordinaires, **ne pas solliciter le propriétaire pour relancer un test, examiner un log ou accepter une correction du code TEST**. Diagnostiquer, ajouter une régression, corriger en branche, vérifier le dernier SHA et poursuivre. Limiter les réessais automatiques ; ouvrir un blocage documenté s'il manque un droit IAM, une sauvegarde vérifiable ou un accès à une API manuelle. Ne jamais présenter un rôle documenté comme un agent actif sans processus d'exécution réellement connecté.
