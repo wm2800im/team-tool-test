@@ -404,6 +404,8 @@ async function linkDeviceFromInput(){
   }
   try{
     setLoading('Liaison de cet appareil…','Vérification du lien personnel.');
+    if(teamInvite&&await getDoc(doc(db,'deviceLinks',authUser.uid)).then(snap=>snap.exists()))
+      throw new Error('Cet appareil utilise déjà ton équipe historique. Ouvre le lien de la nouvelle équipe dans une fenêtre privée ou un autre navigateur.');
     const pid=teamInvite?await associateTeamInvite(teamInvite):await associateInviteToken(token);
     cleanInviteParam();
     launchLinkedApp();
@@ -451,6 +453,10 @@ async function resolveDeviceIdentity(){
   const params=new URLSearchParams(location.search);
   const invite=params.get('invite');
   if(linkSnap.exists()){
+    if(MULTI_TEAM_RUNTIME && params.get('team') && invite){
+      showAccess('Cet appareil est déjà associé à l’équipe historique. Pour tester une nouvelle équipe, ouvre son lien dans une fenêtre privée ou un autre navigateur.');
+      return;
+    }
     profileId=linkSnap.data().profileId; linkedProfileId=profileId;
     if(invite) cleanInviteParam();
     return;
@@ -1289,10 +1295,12 @@ async function createNewTeam(){
     });
     createdId=prepared.teamId;
     $('newTeamId').value='';$('newTeamName').value='';$('newTeamMembers').value='';
-    try{await issuePlatformLeaderInvite(createdId);}
+    let invited=false;
+    try{await issuePlatformLeaderInvite(createdId);invited=true;}
     catch(e){console.warn('Première invitation non créée, intervention disponible depuis la liste.',e);}
     await renderPlatformTeams();
-    status.textContent='Équipe '+prepared.name+' créée. '+(createdId?'Vérifie le lien du responsable dans la liste.':'');
+    status.textContent=invited?('Équipe '+prepared.name+' créée. Copie le lien du responsable dans la liste.'):
+      ('Équipe '+prepared.name+' créée, mais le lien du responsable reste à générer depuis la liste.');
   }catch(e){
     status.textContent=(createdId?'Équipe créée, mais suite interrompue : ':'Création refusée : ')+friendlyError(e);
   }finally{button.disabled=!TEAM_ADMIN_TEST;}
