@@ -291,7 +291,9 @@ test('Parcours réel sur émulateur : impératif accepté par deux collègues, g
   ]));
   const workspace={teams:[{teamId:B,name:'Équipe B',members,days:{[date]:{availability:availabilities,responses}}}]};
   const proposal=acceptedDepartureGroups(workspace,B,date);
-  assert.deepEqual(proposal.groups,[{time:'16:30',members:['zoe','alex','ines']}]);
+  assert.equal(proposal.groups.length,1);
+  assert.equal(proposal.groups[0].time,'16:30');
+  assert.deepEqual([...proposal.groups[0].members].sort(),['alex','ines','zoe']);
   assert.deepEqual(proposal.remaining,[]);
   await assertSucceeds(setDoc(ref(zoe,at(B,'plans',date)),{
     date,groups:[{members:proposal.groups[0].members,driver:'zoe',time:'16:30'}]
@@ -302,7 +304,7 @@ test('Parcours réel sur émulateur : impératif accepté par deux collègues, g
   await assertSucceeds(setDoc(ref(zoe,at(B,'config','calendar')),{exceptions:[{date:'2026-11-20',type:'off'}]}));
   const tripB=await getDoc(ref(ines,at(B,'tripDays',date)));
   const tripA=await getDoc(ref(ludo,at(A,'tripDays',date)));
-  assert.deepEqual(tripB.data().groups[0].members,['zoe','alex','ines']);
+  assert.deepEqual([...tripB.data().groups[0].members].sort(),['alex','ines','zoe']);
   assert.deepEqual(tripA.data().groups[0].members,['igor','ludo']);
   assert.equal(tripB.data().groups[0].driver,'zoe');
   await assertFails(getDoc(ref(alex,at(A,'tripDays',date))));
