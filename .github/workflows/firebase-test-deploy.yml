@@ -36,3 +36,14 @@ jobs:
             echo "- Commit : $GITHUB_SHA"
             echo "- Empreinte SHA-256 : $(sha256sum firestore.rules.multiteam.candidate.txt | cut -d' ' -f1)"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Préparer le paquet vérifiable
+        run: |
+          mkdir release-plan
+          cp firestore.rules.multiteam.candidate.txt release-plan/
+          (cd release-plan && sha256sum firestore.rules.multiteam.candidate.txt > SHA256SUMS && sha256sum --check SHA256SUMS)
+          printf '%s\n' "$GITHUB_SHA" > release-plan/COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firebase-test-rules-plan
+          path: release-plan/
+          if-no-files-found: error
