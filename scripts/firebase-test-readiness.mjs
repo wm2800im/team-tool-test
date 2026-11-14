@@ -12,7 +12,7 @@ export function inspectProject(project){
  return project?.projectId===PROJECT && project?.name==='projects/398960207483';
 }
 export function inspectDatabase(database){
- return database?.name===DATABASE && database?.type==='FIRESTORE_NATIVE' && database?.state==='ACTIVE';
+ return database?.name===DATABASE && database?.type==='FIRESTORE_NATIVE' && !database?.deleteTime;
 }
 export function inspectRules(release,ruleset,{legacy,candidate}){
  const name=release?.rulesetName;
@@ -43,6 +43,19 @@ export function inspectAdminDocs(data){
    && d.fields?.active?.booleanValue===true);
 }
 
+// Les codes de diagnostic sont volontairement génériques : jamais de réponse brute, UID ni jeton.
+export function safeApiDiagnostic(status){
+ if(status===401||status===403)return 'HTTP '+status+' — autorisation insuffisante';
+ if(status===404)return 'HTTP 404 — ressource absente ou accès masqué';
+ if(status===429)return 'HTTP 429 — limite API';
+ if(Number.isInteger(status) && status>=500 && status<600)return 'HTTP '+status+' — service indisponible';
+ if(Number.isInteger(status) && status>=400 && status<500)return 'HTTP '+status+' — requête refusée';
+ return 'erreur de lecture ou délai dépassé';
+}
+class RemoteReadError extends Error{
+ constructor(status){super('Accès REST refusé');this.httpStatus=status;}
+}
+
 async function main(){
  if(!process.env.TEST_FIREBASE_AUTH_TOKEN)throw Error('Identité Google Cloud TEST non disponible');
  const key=process.env.TEST_FIREBASE_AUTH_TOKEN;
@@ -52,13 +65,15 @@ async function main(){
  const probe=async (label,url,validate)=>{
    try{
      const res=await fetch(url,{method:'GET',headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(15000)});
-     if(!res.ok)throw Error('HTTP '+res.status);
+     if(!res.ok)throw new RemoteReadError(res.status);
      const json=await res.json();
      const result=await validate(json);
-     observations.push({label,ok:Boolean(result),detail:typeof result==='string'?result:''});
+     const ok=Boolean(result);
+     observations.push({label,ok,detail:ok?(typeof result==='string'?result:''):
+       'réponse non conforme, ressource absente ou condition non satisfaite'});
    }catch(e){
-     // Ne jamais afficher l'URL, le token, la réponse JSON ou un UID.
-     observations.push({label,ok:false,detail:'lecture impossible ou contrôle refusé'});
+     // Les détails du jeton, de l'URL et du corps HTTP ne quittent jamais le processus.
+     observations.push({label,ok:false,detail:safeApiDiagnostic(e?.httpStatus)});
    }
  };
  await probe('Identité du projet Firebase TEST',
@@ -73,7 +88,7 @@ async function main(){
    if(!/^[a-zA-Z0-9_-]+$/.test(id))return false;
    const res=await fetch(base+'/rulesets/'+id,
       {method:'GET',headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(15000)});
-   if(!res.ok)return false;
+   if(!res.ok)throw new RemoteReadError(res.status);
    ruleset=await res.json();
    const outcome=inspectRules(release,ruleset,{
      legacy:readFileSync('firestore.rules.test.txt','utf8'),
@@ -90,7 +105,7 @@ async function main(){
    '',
    '| Vérification | Résultat |',
    '|---|---|',
-   ...observations.map(x=>'| '+x.label+' | '+(x.ok?'OK'+(x.detail?' ('+x.detail+')':''):'NON VÉRIFIÉ / BLOQUANT')+' |'),
+   ...observations.map(x=>'| '+x.label+' | '+(x.ok?'OK'+(x.detail?' ('+x.detail+')':''):'NON VÉRIFIÉ / BLOQUANT — '+x.detail)+' |'),
    '',
    'Aucune modification de Firebase, aucune interrogation de PROD.',
    '**Ce contrôle ne prouve pas une restauration de sauvegarde, ni les protections de l’environnement de publication.**',
@@ -99,7 +114,7 @@ async function main(){
  ];
  if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n'));
  console.log('Précontrôle Firebase TEST : '+observations.filter(x=>x.ok).length+'/'+observations.length+' vérifications confirmées.');
- for(const x of observations)console.log((x.ok?'OK ':'BLOCKED ')+x.label);
+ for(const x of observations)console.log((x.ok?'OK ':'BLOCKED ')+x.label+(x.detail?' — '+x.detail:''));
  if(observations.some(x=>!x.ok))process.exitCode=1;
 }
 if(process.argv[1] && import.meta.url===new URL('file://'+process.argv[1]).href)
