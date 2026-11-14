@@ -1,6 +1,8 @@
 name: Préparer le déploiement des règles Firebase TEST
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       operation:
@@ -23,13 +25,13 @@ concurrency:
 
 jobs:
   application:
-    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    if: github.repository_id == '1356239565' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     uses: ./.github/workflows/checks.yml
   rules:
-    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    if: github.repository_id == '1356239565' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     uses: ./.github/workflows/multiteam-candidate.yml
   plan:
-    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main'
+    if: github.repository_id == '1356239565' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     needs: [application, rules]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -66,7 +68,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main' && inputs.operation != 'plan' && vars.FIREBASE_TEST_RELEASE_ENABLED == 'true'
+    if: github.repository_id == '1356239565' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.operation != 'plan' && vars.FIREBASE_TEST_RELEASE_APPROVED_ENVIRONMENT_READY == 'true'
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 10
