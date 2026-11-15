@@ -312,3 +312,24 @@ test('Parcours réel sur émulateur : impératif accepté par deux collègues, g
   await assertFails(getDoc(ref(ludo,at(B,'config','calendar'))));
   await assertFails(setDoc(ref(alex,at(A,'tripDays',date)),{date,groups:[]}));
 });
+
+test('Les historiques de deux équipes restent distincts lors du recalcul', async () => {
+  const alex = ctx('alex');
+  const zoe = ctx('zoe');
+  const igor = ctx('igor');
+  const day = '2026-10-01';
+  await assertSucceeds(setDoc(ref(zoe, at(B, 'tripDays', day)), {
+    date: day, groups: [{ members: ['alex', 'zoe'], driver: 'alex' }]
+  }));
+  await assertSucceeds(setDoc(ref(igor, at(A, 'tripDays', day)), {
+    date: day, groups: [{ members: ['igor', 'ludo'], driver: 'ludo' }]
+  }));
+  const drivers = async (db, team) => {
+    const history = await getDocs(collection(db, 'teams/' + team + '/tripDays'));
+    return history.docs.filter(entry => entry.id < date)
+      .flatMap(entry => entry.data().groups.map(group => group.driver));
+  };
+  assert.deepEqual(await drivers(alex, B), ['alex']);
+  assert.deepEqual(await drivers(igor, A), ['ludo']);
+  await assertFails(drivers(alex, A));
+});
