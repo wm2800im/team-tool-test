@@ -333,3 +333,22 @@ test('Les historiques de deux équipes restent distincts lors du recalcul', asyn
   assert.deepEqual(await drivers(igor, A), ['ludo']);
   await assertFails(drivers(alex, A));
 });
+
+test('Deux adhésions autorisent leurs équipes et une révocation prime sur le lien simple', async () => {
+  const path = 'teamDeviceLinks/' + users.alex.uid + '/memberships/';
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, path + A), {memberId:'ludo', active:true});
+  });
+  const alex = ctx('alex');
+  await assertSucceeds(getDoc(doc(alex, 'teams/' + A)));
+  await assertSucceeds(getDoc(doc(alex, 'teams/' + B)));
+  await assertFails(getDoc(doc(ctx('zoe'), path + A)));
+  await assertFails(setDoc(doc(alex, path + B), {memberId:'zoe', active:true}));
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), path + B), {memberId:'alex', active:false});
+  });
+  await assertFails(getDoc(doc(alex, 'teams/' + B)));
+  await assertFails(setDoc(doc(alex, at(B,'tripDays',date)), {date, groups:[]}));
+  await assertSucceeds(getDoc(doc(alex, 'teams/' + A)));
+});
