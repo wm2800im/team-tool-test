@@ -32,3 +32,14 @@ test('invitation porte obligatoirement l équipe',()=>{
  assert.equal(parseTeamInvite('https://example.test/?invite='+('a'.repeat(48))),null);
  assert.equal(parseTeamInvite('https://example.test/?team=../secret&invite='+('a'.repeat(48))),null);
 });
+
+test('La sélection exige un rattachement actif unique pour l’équipe demandée', async () => {
+ const {selectLinkedTeam}=await import('../team-runtime-core.mjs');
+ const link=(teamId,memberId)=>({teamId,memberId,teamStatus:'active',directoryTeamId:teamId,memberActive:true});
+ const a=link('team-a','alex'), b=link('team-b','zoe');
+ assert.deepEqual(selectLinkedTeam([a,b],'team-a'),{teamId:'team-a',memberId:'alex'});
+ assert.deepEqual(selectLinkedTeam([a,b],'team-b'),{teamId:'team-b',memberId:'zoe'});
+ assert.throws(()=>selectLinkedTeam([a],'team-b'),/absent/);
+ assert.throws(()=>selectLinkedTeam([a,a],'team-a'),/ambigu/);
+ assert.throws(()=>selectLinkedTeam([{...b,memberActive:false}],'team-b'),/pas actif/);
+});
