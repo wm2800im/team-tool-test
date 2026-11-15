@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deliverTeamNotification, previewPendingTeamNotifications } from '../team-notification-delivery.mjs';
+import { deliverTeamNotification, previewPendingTeamNotifications, previewTeamNotificationDelivery } from '../team-notification-delivery.mjs';
 
 test('Seuls les jetons actifs de l’équipe demandée sont transmis', async () => {
   const reads = [];
@@ -39,6 +39,7 @@ test('La prévisualisation lit uniquement les demandes en attente de l’équipe
       return {
         get: async () => ({ data: () => ({ status: 'active' }) }),
         collection(name) {
+          if (name === 'pushTokens') return { get: async () => ({ docs: [{ data: () => ({ enabled: true, token: 'synthetic-b' }) }] }) };
           assert.equal(name, 'notificationRequests');
           return { where(...filter) {
             assert.deepEqual(filter, ['status', '==', 'pending']);
@@ -52,4 +53,7 @@ test('La prévisualisation lit uniquement les demandes en attente de l’équipe
     } };
   } };
   assert.deepEqual(await previewPendingTeamNotifications({ db, teamId: 'team-b' }), [{ id: 'request-b' }]);
+  assert.deepEqual(await previewTeamNotificationDelivery({ db, teamId: 'team-b' }), {
+    requests: [{ id: 'request-b' }], recipientCount: 1
+  });
 });
