@@ -1,7 +1,7 @@
 name: Relais - recette TEST
 on:
   push:
-    branches: ['relais-test/recette-candidat']
+    branches: ['relais-test/recette-candidat', 'relais-test/recette-finale-auto']
 permissions:
   contents: read
 jobs:
@@ -9,11 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
       - name: Vérifier les données fictives
         shell: bash
         run: |
           set -euo pipefail
-          test "$(cat relais-recette/places.txt)" = '3' || { echo 'Recette: 3 places sont attendues.'; exit 1; }
+          test "$(cat relais-recette/places.txt)" = '3'
+          if [ "$GITHUB_REF_NAME" = 'relais-test/recette-finale-auto' ]; then
+            test -f relais-recette/suite.txt && test "$(cat relais-recette/suite.txt)" = 'SUIVANT' || { echo 'Le marqueur SUIVANT est attendu.'; exit 1; }
+          fi
