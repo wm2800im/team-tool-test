@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deliverTeamNotification } from '../team-notification-delivery.mjs';
+import { deliverTeamNotification, previewPendingTeamNotifications } from '../team-notification-delivery.mjs';
 
 test('Seuls les jetons actifs de l’équipe demandée sont transmis', async () => {
   const reads = [];
@@ -29,4 +29,27 @@ test('Seuls les jetons actifs de l’équipe demandée sont transmis', async () 
   await assert.rejects(deliverTeamNotification({ ...input, teamId: 'draft' }), /inactive/);
   assert.deepEqual(reads, ['team-b', 'draft']);
   assert.equal(messages.length, 1);
+});
+
+test('La prévisualisation lit uniquement les demandes en attente de l’équipe active', async () => {
+  const db = { collection(root) {
+    assert.equal(root, 'teams');
+    return { doc(team) {
+      assert.equal(team, 'team-b');
+      return {
+        get: async () => ({ data: () => ({ status: 'active' }) }),
+        collection(name) {
+          assert.equal(name, 'notificationRequests');
+          return { where(...filter) {
+            assert.deepEqual(filter, ['status', '==', 'pending']);
+            return { limit(max) {
+              assert.equal(max, 50);
+              return { get: async () => ({ docs: [{ id: 'request-b' }] }) };
+            } };
+          } };
+        }
+      };
+    } };
+  } };
+  assert.deepEqual(await previewPendingTeamNotifications({ db, teamId: 'team-b' }), [{ id: 'request-b' }]);
 });
