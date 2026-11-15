@@ -87,23 +87,33 @@ service cloud.firestore {
     function linkedTeamId(){
       return get(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)).data.teamId;
     }
-    function linkedMemberId(){
+    function membershipPath(teamId){
+      return /databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)/memberships/$(teamId);
+    }
+    function linkedMemberId(teamId){
+      return exists(membershipPath(teamId))
+        ? get(membershipPath(teamId)).data.memberId
+        : legacyLinkedMemberId();
+    }
+    function legacyLinkedMemberId(){
       return get(/databases/$(database)/documents/teamDeviceLinks/$(request.auth.uid)).data.memberId;
     }
     function isTeamMember(teamId){
-      return teamIsActive(teamId) && teamLinkExists()
-        && linkedTeamId() == teamId
-        && exists(/databases/$(database)/documents/memberDirectory/$(linkedMemberId()))
-        && get(/databases/$(database)/documents/memberDirectory/$(linkedMemberId())).data.teamId == teamId
-        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId()))
-        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId())).data.active == true;
+      return signedIn() && teamIsActive(teamId)
+        && (exists(membershipPath(teamId))
+          ? get(membershipPath(teamId)).data.active == true
+          : teamLinkExists() && linkedTeamId() == teamId)
+        && exists(/databases/$(database)/documents/memberDirectory/$(linkedMemberId(teamId)))
+        && get(/databases/$(database)/documents/memberDirectory/$(linkedMemberId(teamId))).data.teamId == teamId
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId(teamId)))
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId(teamId))).data.active == true;
     }
     function teamIsActive(teamId){
       return get(/databases/$(database)/documents/teams/$(teamId)).data.status == 'active';
     }
     function isTeamLeader(teamId){
       return isTeamMember(teamId)
-        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId())).data.role == 'leader';
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId(teamId))).data.role == 'leader';
     }
     function canManageTeam(teamId){ return isPlatformAdmin() || isTeamLeader(teamId); }
     function canReadTeam(teamId){ return isPlatformAdmin() || isTeamMember(teamId); }
@@ -118,7 +128,7 @@ service cloud.firestore {
     function isDelleTeamViewer(teamId){
       return teamId == 'wm-original'
         && (isPlatformAdmin()
-          || (isTeamMember(teamId) && linkedMemberId() in ['igor','ludo']));
+          || (isTeamMember(teamId) && linkedMemberId(teamId) in ['igor','ludo']));
     }
 
     // Identité globale : préprovisionnée par superadministrateur, jamais par un utilisateur.
@@ -130,7 +140,7 @@ service cloud.firestore {
     }
     match /memberDirectory/{memberId}{
       allow get: if isPlatformAdmin()
-        || (teamLinkExists() && linkedMemberId() == memberId);
+        || (teamLinkExists() && legacyLinkedMemberId() == memberId);
       allow list: if isPlatformAdmin();
       allow create: if isPlatformAdmin()
         && request.resource.data.teamId is string
@@ -141,6 +151,10 @@ service cloud.firestore {
     }
 
     // Nouveau système de liens (aucune modification des anciens deviceLinks).
+    match /teamDeviceLinks/{uid}/memberships/{teamId}{
+      allow get,list: if signedIn() && (request.auth.uid == uid || isPlatformAdmin());
+      allow write: if false;
+    }
     match /teamDeviceLinks/{uid}{
       allow get: if signedIn() && (request.auth.uid == uid || isPlatformAdmin());
       allow list: if isPlatformAdmin();
@@ -221,28 +235,28 @@ service cloud.firestore {
         allow create: if canReadTeam(teamId)
           && validTeamAvailabilityId(documentId,request.resource.data)
           && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.resource.data.memberId))
-          && (isPlatformAdmin() || request.resource.data.memberId == linkedMemberId());
+          && (isPlatformAdmin() || request.resource.data.memberId == linkedMemberId(teamId));
         allow update: if canReadTeam(teamId)
           && validTeamAvailabilityId(documentId,resource.data)
           && request.resource.data.date == resource.data.date
           && request.resource.data.memberId == resource.data.memberId
-          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId());
+          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId(teamId));
         allow delete: if canReadTeam(teamId)
-          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId());
+          && (isPlatformAdmin() || resource.data.memberId == linkedMemberId(teamId));
       }
       match /compatibilities/{documentId}{
         allow get,list: if canReadTeam(teamId);
         allow create: if canReadTeam(teamId)
           && validTeamCompatibilityId(documentId,request.resource.data)
-          && (isPlatformAdmin() || request.resource.data.responderId == linkedMemberId());
+          && (isPlatformAdmin() || request.resource.data.responderId == linkedMemberId(teamId));
         allow update: if canReadTeam(teamId)
           && validTeamCompatibilityId(documentId,resource.data)
           && request.resource.data.date == resource.data.date
           && request.resource.data.ownerId == resource.data.ownerId
           && request.resource.data.responderId == resource.data.responderId
-          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId());
+          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId(teamId));
         allow delete: if canReadTeam(teamId)
-          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId());
+          && (isPlatformAdmin() || resource.data.responderId == linkedMemberId(teamId));
       }
       match /plans/{date}{
         allow get,list: if canReadTeam(teamId);
@@ -259,7 +273,7 @@ service cloud.firestore {
       match /preferences/{memberId}{
         allow get,list: if canReadTeam(teamId);
         allow create,update,delete: if canReadTeam(teamId)
-          && (isPlatformAdmin() || linkedMemberId() == memberId);
+          && (isPlatformAdmin() || linkedMemberId(teamId) == memberId);
       }
       match /config/{docId}{
         allow get,list: if canReadTeam(teamId);
@@ -276,7 +290,7 @@ service cloud.firestore {
         allow list: if isPlatformAdmin();
         allow create,update: if isTeamMember(teamId)
           && request.auth.uid == uid
-          && request.resource.data.memberId == linkedMemberId();
+          && request.resource.data.memberId == linkedMemberId(teamId);
         allow delete: if isPlatformAdmin()
           || (isTeamMember(teamId) && request.auth.uid == uid);
       }
