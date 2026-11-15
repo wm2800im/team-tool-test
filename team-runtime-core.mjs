@@ -47,3 +47,10 @@ export function parseTeamInvite(raw){
   return {teamId,token:token.toLowerCase()};
  }catch{return null;}
 }
+
+export function selectLinkedTeam(verifiedLinks, teamId) {
+ validateTeamId(teamId);
+ const matches=verifiedLinks.filter(link=>link.teamId===teamId);
+ ensure(matches.length===1,'Rattachement à cette équipe absent ou ambigu');
+ return validateLinkedTeam(matches[0]);
+}
