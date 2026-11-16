@@ -34,3 +34,34 @@ test('aucun partage de cache historique ou de jeton FCM entre équipes',()=>{
  assert.match(app,/async function initMessaging\(\)\{\s*if\(activeTeamId\)return false/);
  assert.match(sw,/team-runtime-core\.mjs/);
 });
+
+test('Le chargement V1 n’utilise que les équipes accessibles au serveur',async()=>{
+ const start=app.indexOf('async function resolveSwitchableTeam(');
+ const end=app.indexOf('function renderTeamSwitcher(',start);
+ assert.ok(start>=0&&end>start);
+ const check=(requested,allowed)=>new Function('allowed','location',`
+   const db={};
+   const doc=(_, ...parts)=>parts;
+   const collection=doc;
+   const getDocFromServer=async ([root,id,child,member])=>{
+     if(root==='teamDeviceLinks')return {exists:()=>true,data:()=>({teamId:'team-a',memberId:'alex'})};
+     if(!allowed.includes(id))throw Object.assign(new Error('refus'),{code:'permission-denied'});
+     return {data:()=>child?{active:true}:{status:'active',name:id}};
+   };
+   const getDocsFromServer=async ([root,id,child])=>root==='teamDeviceLinks'
+     ? {docs:[{id:'team-b',data:()=>({active:true,memberId:'zoe'})}]}
+     : {docs:[{id:id==='team-a'?'alex':'zoe',data:()=>({active:true})}]};
+   let activeTeamId,activeTeamName,profileId,linkedProfileId,teamSwitchChoices,roster;
+   const useTeamRoster=rows=>{roster=rows;};
+   ${app.slice(start,end)}
+   return resolveSwitchableTeam('uid').then(()=>({
+     activeTeamId,profileId,roster:roster[0].memberId,choices:teamSwitchChoices.length
+   }));
+ `)(allowed,{href:'https://example.test/?selectedTeam='+requested});
+ assert.deepEqual(await check('team-b',['team-a','team-b']),{
+   activeTeamId:'team-b',profileId:'zoe',roster:'zoe',choices:2
+ });
+ assert.deepEqual(await check('team-b',['team-a']),{
+   activeTeamId:'team-a',profileId:'alex',roster:'alex',choices:1
+ });
+});

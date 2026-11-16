@@ -21,6 +21,7 @@ const APP_VERSION = ENV.version || '4.8.1';
 const IS_TEST = ENV.environment === 'test';
 // Off jusqu'à l'accord de mise en service TEST. L'ancien parcours reste prioritaire.
 const MULTI_TEAM_RUNTIME = IS_TEST && ENV.enableMultiTeamRuntime === true;
+const TEAM_SWITCH_TEST = MULTI_TEAM_RUNTIME && ENV.enableTeamSwitch === true;
 const TEAM_ADMIN_TEST = MULTI_TEAM_RUNTIME && firebaseConfig.projectId === 'team-tool-test-data';
 const VAPID_KEY = ENV.vapidKey || '';
 const app = initializeApp(firebaseConfig);
@@ -44,6 +45,7 @@ let LABELS = {aurelien:'Aurélien',etienne:'Étienne',igor:'Igor',ludo:'Ludo',st
 let INITIAL = {aurelien:'A',etienne:'E',igor:'I',ludo:'L',stephane:'S'};
 let activeTeamId = null;
 let activeTeamName = '';
+let teamSwitchChoices = [];
 let activeTeamLeaderId = null;
 const dataCollection=name=>collection(db,...collectionSegments(activeTeamId,name));
 const dataDoc=(name,id)=>doc(db,...documentSegments(activeTeamId,name,id));
@@ -315,7 +317,7 @@ function launchLinkedApp(){
   linkedProfileId = linkedProfileId || profileId;
   $('identityName').textContent=label(profileId);
   if(activeTeamId){
-    const h=$('activeTeamLabel');if(h){h.textContent=activeTeamName;h.style.display='block';}
+    const h=$('activeTeamLabel');if(h){h.textContent=activeTeamName;h.style.display='block';renderTeamSwitcher(h);}
   }
   initStaticUI();
   initSettingsUI();
@@ -416,7 +418,55 @@ async function linkDeviceFromInput(){
   }
 }
 
+async function resolveSwitchableTeam(uid){
+  const [legacy, memberships]=await Promise.all([
+    getDocFromServer(doc(db,'teamDeviceLinks',uid)),
+    getDocsFromServer(collection(db,'teamDeviceLinks',uid,'memberships'))
+  ]);
+  const links=new Map(memberships.docs.map(entry=>[entry.id,entry.data()]));
+  if(legacy.exists()&&!links.has(legacy.data().teamId))
+    links.set(legacy.data().teamId,{memberId:legacy.data().memberId,active:true});
+  const choices=[];
+  for(const [teamId,link] of links){
+    if(link.active!==true)continue;
+    try{
+      const [team,member]=await Promise.all([
+        getDocFromServer(doc(db,'teams',teamId)),
+        getDocFromServer(doc(db,'teams',teamId,'members',link.memberId))
+      ]);
+      if(team.data()?.status==='active'&&member.data()?.active===true)
+        choices.push({teamId,memberId:link.memberId,name:team.data().name||teamId});
+    }catch(error){
+      if(error?.code!=='permission-denied')throw error;
+    }
+  }
+  if(!choices.length)return false;
+  const wanted=new URL(location.href).searchParams.get('selectedTeam');
+  const choice=choices.find(item=>item.teamId===wanted)||choices[0];
+  const roster=await getDocsFromServer(collection(db,'teams',choice.teamId,'members'));
+  useTeamRoster(roster.docs.map(d=>({memberId:d.id,...d.data()})));
+  teamSwitchChoices=choices;
+  activeTeamId=choice.teamId;activeTeamName=choice.name;
+  profileId=choice.memberId;linkedProfileId=profileId;
+  return true;
+}
+
+function renderTeamSwitcher(label){
+  if(teamSwitchChoices.length<2)return;
+  const select=document.createElement('select');
+  select.setAttribute('aria-label','Équipe active');
+  for(const choice of teamSwitchChoices)
+    select.add(new Option(choice.name,choice.teamId,false,choice.teamId===activeTeamId));
+  select.addEventListener('change',()=>{
+    const url=new URL(location.href);
+    url.searchParams.set('selectedTeam',select.value);
+    location.assign(url);
+  });
+  label.append(' ',select);
+}
+
 async function resolveLinkedTeam(uid){
+  if(TEAM_SWITCH_TEST)return resolveSwitchableTeam(uid);
   const link=await getDoc(doc(db,'teamDeviceLinks',uid));
   if(!link.exists())return false;
   const {teamId,memberId}=link.data();
