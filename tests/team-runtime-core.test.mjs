@@ -53,3 +53,19 @@ test('Une adhésion explicite révoquée masque le lien simple de la même équi
  assert.deepEqual(listLinkedTeamChoices([other,{teamId:'team-a',active:false}],legacy),[{teamId:'team-b',memberId:'zoe'}]);
  assert.throws(()=>listLinkedTeamChoices([other,other]),/ambigu/);
 });
+
+test('Le chargement ne vérifie pas le membre d’une adhésion révoquée', async () => {
+ const {loadLinkedTeamChoices}=await import('../team-runtime-core.mjs');
+ const verified=[];
+ const input={
+  readExplicitLinks:async()=>[{teamId:'team-a',active:false},{teamId:'team-b',memberId:'zoe',active:true}],
+  readLegacyLink:async()=>({teamId:'team-a',memberId:'alex'}),
+  verifyLink:async(teamId,memberId)=>{
+   verified.push([teamId,memberId]);
+   return {teamStatus:'active',directoryTeamId:teamId,memberActive:true};
+  }
+ };
+ assert.deepEqual(await loadLinkedTeamChoices(input),[{teamId:'team-b',memberId:'zoe'}]);
+ assert.deepEqual(verified,[['team-b','zoe']]);
+ await assert.rejects(loadLinkedTeamChoices({...input,verifyLink:async()=>{throw new Error('Lecture refusée');}}),/Lecture refusée/);
+});
