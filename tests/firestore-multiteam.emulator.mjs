@@ -2,7 +2,7 @@ import test,{before,beforeEach,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {collection,doc,getDoc,getDocs,setDoc,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
+import {collection,doc,getDoc,getDocs,getDocFromServer,getDocsFromServer,setDoc,updateDoc,deleteDoc,writeBatch} from 'firebase/firestore';
 import {acceptedDepartureGroups} from '../multi-team-journey-core.mjs';
 
 const projectId='demo-teamtool-multiteam',date='2026-11-16';
@@ -351,4 +351,34 @@ test('Deux adhésions autorisent leurs équipes et une révocation prime sur le 
   await assertFails(getDoc(doc(alex, 'teams/' + B)));
   await assertFails(setDoc(doc(alex, at(B,'tripDays',date)), {date, groups:[]}));
   await assertSucceeds(getDoc(doc(alex, 'teams/' + A)));
+});
+
+test('Le sélecteur V1 charge successivement les profils des deux équipes', async () => {
+  const source=readFileSync(new URL('../app.js',import.meta.url),'utf8');
+  const start=source.indexOf('async function resolveSwitchableTeam(');
+  const end=source.indexOf('function renderTeamSwitcher(',start);
+  assert.ok(start>=0&&end>start);
+  const location={href:'https://example.test/'};
+  const db=ctx('alex');
+  const choose=new Function('db','doc','collection','getDocFromServer','getDocsFromServer','location',`
+    let activeTeamId,activeTeamName,profileId,linkedProfileId,teamSwitchChoices,roster;
+    const useTeamRoster=users=>{roster=users;};
+    ${source.slice(start,end)}
+    return async uid=>{ await resolveSwitchableTeam(uid); return {activeTeamId,profileId,roster}; };
+  `)(db,doc,collection,getDocFromServer,getDocsFromServer,location);
+  const membership='teamDeviceLinks/'+users.alex.uid+'/memberships/'+A;
+  location.href='https://example.test/?selectedTeam='+A;
+  assert.equal((await choose(users.alex.uid)).activeTeamId,B);
+  await env.withSecurityRulesDisabled(async context=>{
+    await setDoc(doc(context.firestore(),membership),{memberId:'ludo',active:true});
+  });
+  const first=await choose(users.alex.uid);
+  assert.equal(first.activeTeamId,A);
+  assert.equal(first.profileId,'ludo');
+  assert.ok(first.roster.every(member=>member.memberId!=='alex'));
+  location.href='https://example.test/?selectedTeam='+B;
+  const second=await choose(users.alex.uid);
+  assert.equal(second.activeTeamId,B);
+  assert.equal(second.profileId,'alex');
+  assert.ok(second.roster.every(member=>member.memberId!=='ludo'));
 });
