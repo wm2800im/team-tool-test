@@ -43,3 +43,13 @@ test('La sélection exige un rattachement actif unique pour l’équipe demandé
  assert.throws(()=>selectLinkedTeam([a,a],'team-a'),/ambigu/);
  assert.throws(()=>selectLinkedTeam([{...b,memberActive:false}],'team-b'),/pas actif/);
 });
+
+test('Une adhésion explicite révoquée masque le lien simple de la même équipe', async () => {
+ const {listLinkedTeamChoices}=await import('../team-runtime-core.mjs');
+ const legacy={teamId:'team-a',memberId:'alex',teamStatus:'active',directoryTeamId:'team-a',memberActive:true};
+ const other={teamId:'team-b',memberId:'zoe',teamStatus:'active',directoryTeamId:'team-b',memberActive:true,active:true};
+ assert.deepEqual(listLinkedTeamChoices([],legacy),[{teamId:'team-a',memberId:'alex'}]);
+ assert.equal(listLinkedTeamChoices([other],legacy).length,2);
+ assert.deepEqual(listLinkedTeamChoices([other,{teamId:'team-a',active:false}],legacy),[{teamId:'team-b',memberId:'zoe'}]);
+ assert.throws(()=>listLinkedTeamChoices([other,other]),/ambigu/);
+});
