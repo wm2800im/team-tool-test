@@ -103,9 +103,7 @@ service cloud.firestore {
         && (exists(membershipPath(teamId))
           ? get(membershipPath(teamId)).data.active == true
           : teamLinkExists() && linkedTeamId() == teamId)
-        && exists(/databases/$(database)/documents/memberDirectory/$(linkedMemberId(teamId)))
         && get(/databases/$(database)/documents/memberDirectory/$(linkedMemberId(teamId))).data.teamId == teamId
-        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId(teamId)))
         && get(/databases/$(database)/documents/teams/$(teamId)/members/$(linkedMemberId(teamId))).data.active == true;
     }
     function teamIsActive(teamId){
