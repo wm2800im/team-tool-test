@@ -54,3 +54,19 @@ export function selectLinkedTeam(verifiedLinks, teamId) {
  ensure(matches.length===1,'Rattachement à cette équipe absent ou ambigu');
  return validateLinkedTeam(matches[0]);
 }
+
+export function listLinkedTeamChoices(explicitLinks, legacyLink = null) {
+ const choices=new Map();
+ const seen=new Set();
+ for(const link of explicitLinks){
+   const teamId=validateTeamId(link.teamId);
+   ensure(!seen.has(teamId),'Rattachement à cette équipe ambigu');
+   seen.add(teamId);
+   if(link.active===true)choices.set(teamId,validateLinkedTeam(link));
+ }
+ if(legacyLink&&!seen.has(validateTeamId(legacyLink.teamId))){
+   const link=validateLinkedTeam(legacyLink);
+   choices.set(link.teamId,link);
+ }
+ return [...choices.values()];
+}
