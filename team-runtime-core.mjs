@@ -70,3 +70,20 @@ export function listLinkedTeamChoices(explicitLinks, legacyLink = null) {
  }
  return [...choices.values()];
 }
+
+export async function loadLinkedTeamChoices({ readExplicitLinks, readLegacyLink, verifyLink }) {
+ const [explicitLinks, legacyLink]=await Promise.all([readExplicitLinks(),readLegacyLink()]);
+ const explicit=await Promise.all(explicitLinks.map(async link=>{
+   const teamId=validateTeamId(link.teamId);
+   if(link.active!==true)return {teamId,active:false};
+   const memberId=validateMemberId(link.memberId);
+   const verified=await verifyLink(teamId,memberId);
+   return {...verified,teamId,memberId,active:true};
+ }));
+ let legacy=null;
+ if(legacyLink && !explicit.some(link=>link.teamId===legacyLink.teamId)){
+   const teamId=validateTeamId(legacyLink.teamId), memberId=validateMemberId(legacyLink.memberId);
+   legacy={...await verifyLink(teamId,memberId),teamId,memberId};
+ }
+ return listLinkedTeamChoices(explicit,legacy);
+}
