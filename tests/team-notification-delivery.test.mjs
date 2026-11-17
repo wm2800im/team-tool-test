@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deliverTeamNotification, previewPendingTeamNotifications, previewTeamNotificationDelivery } from '../team-notification-delivery.mjs';
+import { deliverTeamNotification, previewPendingTeamNotifications, previewTeamNotificationDelivery, rehearseTeamNotificationRequest } from '../team-notification-delivery.mjs';
 
 test('Seuls les jetons actifs de l’équipe demandée sont transmis', async () => {
   const reads = [];
@@ -74,4 +74,30 @@ test('Une équipe active sans destinataire valide ne déclenche aucun transport'
     db, teamId: 'team-b', title: 'Planning', body: 'Test',
     send: () => assert.fail('Le transport ne doit pas être appelé')
   }), 0);
+});
+
+test('Une demande est vérifiée dans le même espace que ses destinataires', async () => {
+  const reads = [];
+  const db = { collection(root) {
+    assert.equal(root, 'teams');
+    return { doc(team) {
+      assert.equal(team, 'team-b');
+      return {
+        get: async () => ({ data: () => ({ status: 'active' }) }),
+        collection(name) {
+          reads.push(name);
+          if (name === 'notificationRequests') return { doc: id => ({
+            get: async () => ({ data: () => id === 'b-1' ? { status: 'pending' } : undefined })
+          }) };
+          assert.equal(name, 'pushTokens');
+          return { get: async () => ({ docs: [{ data: () => ({ enabled: true, token: 'synthetic-b' }) }] }) };
+        }
+      };
+    } };
+  } };
+  await assert.rejects(rehearseTeamNotificationRequest({ db, teamId: 'team-b', requestId: 'a-1' }), /introuvable/);
+  assert.deepEqual(reads, ['notificationRequests']);
+  assert.deepEqual(await rehearseTeamNotificationRequest({ db, teamId: 'team-b', requestId: 'b-1' }),
+    { requestId: 'b-1', recipientCount: 1 });
+  assert.deepEqual(reads, ['notificationRequests', 'notificationRequests', 'pushTokens']);
 });
