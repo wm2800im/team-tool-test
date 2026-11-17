@@ -36,3 +36,12 @@ export async function previewTeamNotificationDelivery({ db, teamId }) {
   const team = await activeTeam(db, teamId);
   return { requests, recipientCount: (await enabledTokens(team)).length };
 }
+
+export async function rehearseTeamNotificationRequest({ db, teamId, requestId }) {
+  if (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(requestId))
+    throw new Error('Identifiant de demande invalide');
+  const team = await activeTeam(db, teamId);
+  const request = (await team.collection('notificationRequests').doc(requestId).get()).data();
+  if (request?.status !== 'pending') throw new Error('Demande en attente introuvable');
+  return { requestId, recipientCount: (await enabledTokens(team)).length };
+}
