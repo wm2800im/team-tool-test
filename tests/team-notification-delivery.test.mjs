@@ -57,3 +57,21 @@ test('La prévisualisation lit uniquement les demandes en attente de l’équipe
     requests: [{ id: 'request-b' }], recipientCount: 1
   });
 });
+
+test('Une équipe active sans destinataire valide ne déclenche aucun transport', async () => {
+  const db = { collection: () => ({ doc: () => ({
+    get: async () => ({ data: () => ({ status: 'active' }) }),
+    collection: name => {
+      assert.equal(name, 'pushTokens');
+      return { get: async () => ({ docs: [
+        { data: () => ({ enabled: false, token: 'disabled' }) },
+        { data: () => ({ enabled: true, token: ' ' }) },
+        { data: () => ({ enabled: true, token: null }) }
+      ] }) };
+    }
+  }) }) };
+  assert.equal(await deliverTeamNotification({
+    db, teamId: 'team-b', title: 'Planning', body: 'Test',
+    send: () => assert.fail('Le transport ne doit pas être appelé')
+  }), 0);
+});
