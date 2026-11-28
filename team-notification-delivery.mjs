@@ -3,7 +3,15 @@ export async function deliverTeamNotification({ db, teamId, title, body, send })
   const team = await activeTeam(db, teamId);
   const tokens = await enabledTokens(team);
   for (let start = 0; start < tokens.length; start += 500) {
-    await send({ tokens: tokens.slice(start, start + 500), title, body });
+    try {
+      await send({ tokens: tokens.slice(start, start + 500), title, body });
+    } catch (cause) {
+      const error = new Error('Livraison interrompue : vérifier le lot incertain avant toute reprise', { cause });
+      error.confirmedRecipientCount = start;
+      error.uncertainRecipientCount = Math.min(500, tokens.length - start);
+      error.remainingRecipientCount = Math.max(0, tokens.length - start - 500);
+      throw error;
+    }
   }
   return tokens.length;
 }
