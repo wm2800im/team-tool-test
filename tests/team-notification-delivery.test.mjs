@@ -116,6 +116,13 @@ test('La livraison borne les lots et propage un échec du transport', async () =
  await assert.rejects(deliverTeamNotification({db,teamId:'team-b',send:async()=>{
   calls++;
   if(calls===2)throw new Error('Transport indisponible');
- }}),/Transport indisponible/);
+ }}),error=>{
+  assert.equal(error.cause.message,'Transport indisponible');
+  assert.equal(error.confirmedRecipientCount,500);
+  assert.equal(error.uncertainRecipientCount,500);
+  assert.equal(error.remainingRecipientCount,1);
+  assert.equal(JSON.stringify(error).includes('synthetic-'),false);
+  return true;
+ });
  assert.equal(calls,2);
 });
