@@ -126,3 +126,23 @@ test('La livraison borne les lots et propage un échec du transport', async () =
  });
  assert.equal(calls,2);
 });
+
+test('Un résultat partiel arrête la livraison avant le lot suivant', async () => {
+ const db={collection:()=>({doc:()=>({
+  get:async()=>({data:()=>({status:'active'})}),
+  collection:()=>({get:async()=>({docs:Array.from({length:501},(_,i)=>({
+   data:()=>({enabled:true,token:'synthetic-'+i})
+  }))})})
+ })})};
+ let calls=0;
+ await assert.rejects(deliverTeamNotification({db,teamId:'team-b',send:async()=>{
+  calls++;
+  return {successCount:499,failureCount:1};
+ }}),error=>{
+  assert.equal(error.confirmedRecipientCount,0);
+  assert.equal(error.uncertainRecipientCount,500);
+  assert.equal(error.remainingRecipientCount,1);
+  return true;
+ });
+ assert.equal(calls,1);
+});
