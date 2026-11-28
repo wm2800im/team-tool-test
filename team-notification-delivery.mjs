@@ -2,7 +2,9 @@
 export async function deliverTeamNotification({ db, teamId, title, body, send }) {
   const team = await activeTeam(db, teamId);
   const tokens = await enabledTokens(team);
-  if (tokens.length) await send({ tokens, title, body });
+  for (let start = 0; start < tokens.length; start += 500) {
+    await send({ tokens: tokens.slice(start, start + 500), title, body });
+  }
   return tokens.length;
 }
 

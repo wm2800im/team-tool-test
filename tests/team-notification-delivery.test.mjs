@@ -101,3 +101,21 @@ test('Une demande est vérifiée dans le même espace que ses destinataires', as
     { requestId: 'b-1', recipientCount: 1 });
   assert.deepEqual(reads, ['notificationRequests', 'notificationRequests', 'pushTokens']);
 });
+
+test('La livraison borne les lots et propage un échec du transport', async () => {
+ const tokens=Array.from({length:1001},(_,i)=>'synthetic-'+i);
+ const db={collection:()=>({doc:()=>({
+  get:async()=>({data:()=>({status:'active'})}),
+  collection:()=>({get:async()=>({docs:tokens.map(token=>({data:()=>({token,enabled:true})}))})})
+ })})};
+ const batches=[];
+ assert.equal(await deliverTeamNotification({db,teamId:'team-b',send:async message=>{batches.push(message.tokens);}}),1001);
+ assert.deepEqual(batches.map(batch=>batch.length),[500,500,1]);
+ assert.deepEqual(batches.flat(),tokens);
+ let calls=0;
+ await assert.rejects(deliverTeamNotification({db,teamId:'team-b',send:async()=>{
+  calls++;
+  if(calls===2)throw new Error('Transport indisponible');
+ }}),/Transport indisponible/);
+ assert.equal(calls,2);
+});
