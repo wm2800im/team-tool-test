@@ -4,7 +4,10 @@ export async function deliverTeamNotification({ db, teamId, title, body, send })
   const tokens = await enabledTokens(team);
   for (let start = 0; start < tokens.length; start += 500) {
     try {
-      await send({ tokens: tokens.slice(start, start + 500), title, body });
+      const result = await send({ tokens: tokens.slice(start, start + 500), title, body });
+      if (result?.failureCount > 0 || result?.responses?.some(response => response.success !== true)) {
+        throw new Error('Le transport signale un échec individuel');
+      }
     } catch (cause) {
       const error = new Error('Livraison interrompue : vérifier le lot incertain avant toute reprise', { cause });
       error.confirmedRecipientCount = start;
